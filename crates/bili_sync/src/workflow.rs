@@ -553,28 +553,28 @@ pub async fn download_page(
         && !old_video_path.is_empty()
     {
         let old_video_path = Path::new(old_video_path);
-        let old_video_filename = old_video_path
-            .file_name()
-            .context("invalid page path format")?
-            .to_string_lossy();
         if is_single_page {
-            // 单页下的路径是 {base_path}/{base_name}.mp4
+            // 单页下的路径是 {base_path}/{base_name}.{media_extension}
             (
                 old_video_path.parent().context("invalid page path format")?,
-                old_video_filename.trim_end_matches(".mp4").to_string(),
+                old_video_path
+                    .file_stem()
+                    .context("invalid page path format")?
+                    .to_string_lossy()
+                    .to_string(),
             )
         } else {
-            // 多页下的路径是 {base_path}/Season 1/{base_name} - S01Exx.mp4
+            // 多页下的路径是 {base_path}/Season 1/{base_name} - S01Exx.{media_extension}
             (
                 old_video_path
                     .parent()
                     .and_then(|p| p.parent())
                     .context("invalid page path format")?,
-                old_video_filename
-                    .rsplit_once(" - ")
-                    .context("invalid page path format")?
-                    .0
-                    .to_string(),
+                old_video_path
+                    .file_stem()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .and_then(|name| name.rsplit_once(" - ").map(|(base_name, _)| base_name.to_string()))
+                    .context("invalid page path format")?,
             )
         }
     } else {
@@ -587,10 +587,11 @@ pub async fn download_page(
         )
     };
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
+    let media_extension = if cx.filter_option.audio_only { "m4a" } else { "mp4" };
     let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
             base_path.join(format!("{}-poster.jpg", base_name)),
-            base_path.join(format!("{}.mp4", base_name)),
+            base_path.join(format!("{}.{}", base_name, media_extension)),
             base_path.join(format!("{}.nfo", base_name)),
             base_path.join(format!("{}.zh-CN.default.ass", base_name)),
             Some(base_path.join(format!("{}-fanart.jpg", base_name))),
@@ -601,9 +602,10 @@ pub async fn download_page(
             base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}-thumb.jpg", base_name, page_model.pid)),
-            base_path
-                .join("Season 1")
-                .join(format!("{} - S01E{:0>2}.mp4", base_name, page_model.pid)),
+            base_path.join("Season 1").join(format!(
+                "{} - S01E{:0>2}.{}",
+                base_name, page_model.pid, media_extension
+            )),
             base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.nfo", base_name, page_model.pid)),
@@ -759,6 +761,18 @@ pub async fn fetch_page_video(
         .await?
         .best_stream(cx.filter_option)?;
     match streams {
+        BestStream::Audio(audio_stream) => {
+            cx.downloader
+                .multi_fetch_audio(
+                    &audio_stream.urls(cx.config.cdn_sorting),
+                    page_path,
+                    &cx.config.concurrent_limit.download,
+                )
+                .await?
+        }
+        BestStream::Mixed(_mix_stream) if cx.filter_option.audio_only => {
+            bail!("当前视频仅提供混合视频流，无法只下载音频")
+        }
         BestStream::Mixed(mix_stream) => {
             cx.downloader
                 .multi_fetch(
@@ -768,6 +782,9 @@ pub async fn fetch_page_video(
                 )
                 .await?
         }
+        BestStream::VideoAudio { video: _, audio: None } if cx.filter_option.audio_only => {
+            bail!("当前视频没有可用的音频流")
+        }
         BestStream::VideoAudio {
             video: video_stream,
             audio: None,
@@ -775,6 +792,18 @@ pub async fn fetch_page_video(
             cx.downloader
                 .multi_fetch(
                     &video_stream.urls(cx.config.cdn_sorting),
+                    page_path,
+                    &cx.config.concurrent_limit.download,
+                )
+                .await?
+        }
+        BestStream::VideoAudio {
+            video: _,
+            audio: Some(audio_stream),
+        } if cx.filter_option.audio_only => {
+            cx.downloader
+                .multi_fetch_audio(
+                    &audio_stream.urls(cx.config.cdn_sorting),
                     page_path,
                     &cx.config.concurrent_limit.download,
                 )

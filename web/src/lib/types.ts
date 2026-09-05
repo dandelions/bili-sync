@@ -263,6 +263,7 @@ export interface FilterOption {
 	audio_max_quality: string;
 	audio_min_quality: string;
 	codecs: string[];
+	audio_only: boolean;
 	no_dolby_video: boolean;
 	no_dolby_audio: boolean;
 	no_hdr: boolean;

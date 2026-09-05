@@ -55,6 +55,10 @@
 	let useCustomFilterOption = false;
 	let editFilterOption: FilterOption | null = null;
 
+	function normalizeFilterOption(option: FilterOption): FilterOption {
+		return { ...option, audio_only: option.audio_only ?? false };
+	}
+
 	// 规则评估对话框状态
 	let showEvaluateDialog = false;
 	let evaluateSource: VideoSourceDetail | null = null;
@@ -104,7 +108,7 @@
 				api.getConfig()
 			]);
 			videoSourcesData = response.data;
-			globalFilterOption = configResponse.data.filter_option;
+			globalFilterOption = normalizeFilterOption(configResponse.data.filter_option);
 		} catch (error) {
 			toast.error('加载视频源失败', {
 				description: (error as ApiError).message
@@ -126,7 +130,7 @@
 			rule: source.rule
 		};
 		useCustomFilterOption = source.filterOption !== null;
-		editFilterOption = structuredClone(source.filterOption ?? globalFilterOption!);
+		editFilterOption = normalizeFilterOption(structuredClone(source.filterOption ?? globalFilterOption!));
 		showEditDialog = true;
 	}
 

@@ -26,6 +26,10 @@
 	let saving = false;
 	let loading = false;
 
+	function normalizeFilterOption(option: Config['filter_option']): Config['filter_option'] {
+		return { ...option, audio_only: option.audio_only ?? false };
+	}
+
 	let intervalInput: string = '1200';
 
 	// Notifier 管理相关
@@ -98,7 +102,7 @@
 		try {
 			const response = await api.getConfig();
 			config = response.data;
-			formData = { ...config };
+			formData = { ...config, filter_option: normalizeFilterOption(config.filter_option) };
 
 			// 根据 interval 的类型初始化输入框
 			if (typeof formData.interval === 'number') {

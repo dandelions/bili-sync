@@ -11,6 +11,13 @@
 </script>
 
 <div class="space-y-6">
+	<div class="flex items-center space-x-2">
+		<Switch id="audio-only" bind:checked={value.audio_only} {disabled} />
+		<Label for="audio-only">仅下载音频</Label>
+	</div>
+	<p class="text-muted-foreground text-sm">
+		开启后只请求并保存音频流，不下载视频流；文件保存为 M4A。
+	</p>
 	<div class="space-y-4">
 		<Label>流质量过滤</Label>
 		<p class="text-muted-foreground text-sm">

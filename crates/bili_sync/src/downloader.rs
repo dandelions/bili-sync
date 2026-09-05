@@ -58,6 +58,46 @@ impl Downloader {
         Ok(())
     }
 
+    /// 下载并封装音频流，不请求对应的视频流。
+    pub async fn multi_fetch_audio(
+        &self,
+        audio_urls: &[&str],
+        path: &Path,
+        concurrent_download: &ConcurrentDownloadLimit,
+    ) -> Result<()> {
+        let audio_temp_file = self.multi_fetch_internal(audio_urls, true, concurrent_download).await?;
+        let final_temp_file = TempFile::new().await?;
+        let output = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"))
+            .args([
+                "-i",
+                audio_temp_file.file_path().to_string_lossy().as_ref(),
+                "-vn",
+                "-c:a",
+                "aac",
+                "-q:a",
+                "2",
+                "-f",
+                "ipod",
+                "-y",
+                final_temp_file.file_path().to_string_lossy().as_ref(),
+            ])
+            .output()
+            .await
+            .context("failed to run ffmpeg for audio")?;
+        if !output.status.success() {
+            bail!(
+                "ffmpeg audio error: {}",
+                str::from_utf8(&output.stderr).unwrap_or("unknown")
+            );
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::copy(final_temp_file.file_path(), path).await?;
+        tokio::join!(audio_temp_file.drop_async(), final_temp_file.drop_async());
+        Ok(())
+    }
+
     pub async fn multi_fetch_and_merge(
         &self,
         video_urls: &[&str],

@@ -87,6 +87,8 @@ pub struct FilterOption {
     pub audio_max_quality: AudioQuality,
     pub audio_min_quality: AudioQuality,
     pub codecs: Vec<VideoCodecs>,
+    #[serde(default)]
+    pub audio_only: bool,
     pub no_dolby_video: bool,
     pub no_dolby_audio: bool,
     pub no_hdr: bool,
@@ -101,6 +103,7 @@ impl Default for FilterOption {
             audio_max_quality: AudioQuality::QualityHiRES,
             audio_min_quality: AudioQuality::Quality64k,
             codecs: vec![VideoCodecs::AVC, VideoCodecs::HEV, VideoCodecs::AV1],
+            audio_only: false,
             no_dolby_video: false,
             no_dolby_audio: false,
             no_hdr: false,
@@ -156,11 +159,13 @@ impl Stream {
     }
 }
 
-/// 用于获取视频流的最佳筛选结果，有两种可能：
-/// 1. 单个混合流，作为 Mixed 返回
-/// 2. 视频、音频分离，作为 VideoAudio 返回，其中音频流可能不存在（对于无声视频，如 BV1J7411H7KQ）
+/// 用于获取视频流的最佳筛选结果：
+/// 1. 仅音频模式返回独立音频流，作为 Audio 返回
+/// 2. 单个混合流，作为 Mixed 返回
+/// 3. 视频、音频分离，作为 VideoAudio 返回，其中音频流可能不存在（对于无声视频，如 BV1J7411H7KQ）
 #[derive(Debug)]
 pub enum BestStream {
+    Audio(Stream),
     VideoAudio { video: Stream, audio: Option<Stream> },
     Mixed(Stream),
 }
@@ -213,38 +218,40 @@ impl PageAnalyzer {
             )]);
         }
         let mut streams: Vec<Stream> = Vec::new();
-        for video in self
-            .info
-            .pointer_mut("/dash/video")
-            .and_then(|v| v.as_array_mut())
-            .ok_or(BiliError::VideoStreamsEmpty)?
-            .iter_mut()
-        {
-            let (Some(url), Some(quality), Some(codecs_id)) = (
-                video["baseUrl"].as_str(),
-                video["id"].as_u64(),
-                video["codecid"].as_u64(),
-            ) else {
-                continue;
-            };
-            let quality = VideoQuality::from_repr(quality as usize).context("invalid video stream quality")?;
-            let Ok(codecs) = codecs_id.try_into() else {
-                continue;
-            };
-            if !filter_option.codecs.contains(&codecs)
-                || quality < filter_option.video_min_quality
-                || quality > filter_option.video_max_quality
-                || (quality == VideoQuality::QualityHdr && filter_option.no_hdr)
-                || (quality == VideoQuality::QualityDolby && filter_option.no_dolby_video)
+        if !filter_option.audio_only {
+            for video in self
+                .info
+                .pointer_mut("/dash/video")
+                .and_then(|v| v.as_array_mut())
+                .ok_or(BiliError::VideoStreamsEmpty)?
+                .iter_mut()
             {
-                continue;
+                let (Some(url), Some(quality), Some(codecs_id)) = (
+                    video["baseUrl"].as_str(),
+                    video["id"].as_u64(),
+                    video["codecid"].as_u64(),
+                ) else {
+                    continue;
+                };
+                let quality = VideoQuality::from_repr(quality as usize).context("invalid video stream quality")?;
+                let Ok(codecs) = codecs_id.try_into() else {
+                    continue;
+                };
+                if !filter_option.codecs.contains(&codecs)
+                    || quality < filter_option.video_min_quality
+                    || quality > filter_option.video_max_quality
+                    || (quality == VideoQuality::QualityHdr && filter_option.no_hdr)
+                    || (quality == VideoQuality::QualityDolby && filter_option.no_dolby_video)
+                {
+                    continue;
+                }
+                streams.push(Stream::DashVideo {
+                    url: url.to_string(),
+                    backup_url: serde_json::from_value(video["backupUrl"].take()).unwrap_or_default(),
+                    quality,
+                    codecs,
+                });
             }
-            streams.push(Stream::DashVideo {
-                url: url.to_string(),
-                backup_url: serde_json::from_value(video["backupUrl"].take()).unwrap_or_default(),
-                quality,
-                codecs,
-            });
         }
         if let Some(audios) = self.info.pointer_mut("/dash/audio").and_then(|a| a.as_array_mut()) {
             for audio in audios.iter_mut() {
@@ -311,6 +318,15 @@ impl PageAnalyzer {
         }
         let (videos, audios): (Vec<Stream>, Vec<Stream>) =
             streams.into_iter().partition(|s| matches!(s, Stream::DashVideo { .. }));
+        let audio = audios.into_iter().max_by(|a, b| match (a, b) {
+            (Stream::DashAudio { quality: a_quality, .. }, Stream::DashAudio { quality: b_quality, .. }) => {
+                a_quality.cmp(b_quality)
+            }
+            _ => unreachable!(),
+        });
+        if filter_option.audio_only {
+            return Ok(BestStream::Audio(audio.context("no audio stream found")?));
+        }
         Ok(BestStream::VideoAudio {
             video: videos
                 .into_iter()
@@ -339,12 +355,7 @@ impl PageAnalyzer {
                     _ => unreachable!(),
                 })
                 .context("no video stream found")?,
-            audio: audios.into_iter().max_by(|a, b| match (a, b) {
-                (Stream::DashAudio { quality: a_quality, .. }, Stream::DashAudio { quality: b_quality, .. }) => {
-                    a_quality.cmp(b_quality)
-                }
-                _ => unreachable!(),
-            }),
+            audio,
         })
     }
 }
@@ -382,6 +393,33 @@ mod tests {
             ]
             .is_sorted()
         );
+    }
+
+    #[test]
+    fn test_audio_only_does_not_require_video_stream() {
+        let mut analyzer = PageAnalyzer::new(serde_json::json!({
+            "dash": {
+                "audio": [{
+                    "baseUrl": "https://example.com/audio.m4s",
+                    "backupUrl": [],
+                    "id": 30280
+                }]
+            }
+        }));
+        let filter_option = FilterOption {
+            audio_only: true,
+            ..Default::default()
+        };
+        match analyzer
+            .best_stream(&filter_option)
+            .expect("audio stream should be selected")
+        {
+            BestStream::Audio(Stream::DashAudio { url, quality, .. }) => {
+                assert_eq!(url, "https://example.com/audio.m4s");
+                assert_eq!(quality, AudioQuality::Quality192k);
+            }
+            _ => panic!("expected an audio-only stream"),
+        }
     }
 
     #[ignore = "only for manual test"]
@@ -440,6 +478,7 @@ mod tests {
                 .expect("failed to get best stream");
             dbg!(bvid, &best_stream);
             match best_stream {
+                BestStream::Audio(_) => unreachable!(),
                 BestStream::VideoAudio {
                     video: Stream::DashVideo { quality, codecs, .. },
                     audio,
