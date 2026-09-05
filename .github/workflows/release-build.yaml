@@ -4,10 +4,11 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
 
 jobs:
   build-binary:
-    uses: amtoaer/bili-sync/.github/workflows/build-binary.yaml@main
+    uses: ./.github/workflows/build-binary.yaml
   github-release:
     name: Create GitHub Release
     needs: build-binary
