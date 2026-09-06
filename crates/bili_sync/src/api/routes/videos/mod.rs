@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::extract::{Extension, Path, Query};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -131,10 +131,10 @@ pub async fn extract_audio(
     let mut extracted_count = 0;
     let mut warnings = Vec::new();
     for (video, pages) in videos {
-        let Some(is_single_page) = video.single_page else {
+        if video.single_page.is_none() {
             warnings.push(format!("视频「{}」缺少分页信息", video.name));
             continue;
-        };
+        }
         for page in pages {
             let Some(video_path) = page.path.as_deref().filter(|path| !path.is_empty()).map(FsPath::new) else {
                 warnings.push(format!("视频「{}」第 {} 页没有本地视频路径", video.name, page.pid));
@@ -153,18 +153,7 @@ pub async fn extract_audio(
                 warnings.push(format!("视频「{}」第 {} 页本地文件名无效", video.name, page.pid));
                 continue;
             };
-            let audio_dir = if is_single_page {
-                video_path.parent().map(PathBuf::from).map(|path| path.join("Audio"))
-            } else {
-                video_path
-                    .parent()
-                    .and_then(FsPath::parent)
-                    .map(PathBuf::from)
-                    .map(|path| {
-                        path.join("Audio")
-                            .join(video_path.parent().and_then(FsPath::file_name).unwrap_or_default())
-                    })
-            };
+            let audio_dir = video_path.parent().map(PathBuf::from);
             let Some(audio_dir) = audio_dir else {
                 warnings.push(format!("视频「{}」第 {} 页本地路径无效", video.name, page.pid));
                 continue;
@@ -216,6 +205,7 @@ pub async fn delete_videos(
     }
     let videos = video::Entity::find()
         .filter(video::Column::Id.is_in(ids.iter().copied()))
+        .find_with_related(page::Entity)
         .all(&db)
         .await?;
     let deleted_count = videos.len();
@@ -223,9 +213,9 @@ pub async fn delete_videos(
     let mut collection_ids = HashSet::new();
     let mut submission_ids = HashSet::new();
     let mut watch_later_ids = HashSet::new();
-    let paths = videos
+    let page_paths = videos
         .into_iter()
-        .filter_map(|video| {
+        .flat_map(|(video, pages)| {
             if let Some(id) = video.favorite_id {
                 favorite_ids.insert(id);
             }
@@ -238,7 +228,9 @@ pub async fn delete_videos(
             if let Some(id) = video.watch_later_id {
                 watch_later_ids.insert(id);
             }
-            (!video.path.is_empty()).then_some((video.id, video.path))
+            pages
+                .into_iter()
+                .filter_map(move |page| page.path.filter(|path| !path.is_empty()).map(|path| (video.id, path)))
         })
         .collect::<Vec<_>>();
     let txn = db.begin().await?;
@@ -254,15 +246,40 @@ pub async fn delete_videos(
     reset_source_latest_row_at(&db, &favorite_ids, &collection_ids, &submission_ids, &watch_later_ids).await?;
 
     let mut warnings = Vec::new();
-    for (id, path) in paths {
-        if let Err(error) = tokio::fs::remove_dir_all(&path).await {
-            warnings.push(format!("视频 {} 的本地路径「{}」删除失败：{:#}", id, path, error));
+    for (id, path) in page_paths {
+        if let Err(error) = remove_page_files(FsPath::new(&path)).await {
+            warnings.push(format!("视频 {} 的本地文件「{}」删除失败：{:#}", id, path, error));
         }
     }
     Ok(ApiResponse::ok(DeleteVideosResponse {
         deleted_count,
         warnings,
     }))
+}
+
+async fn remove_page_files(path: &FsPath) -> Result<()> {
+    let mut paths = vec![path.to_path_buf()];
+    paths.push(path.with_extension("mp4"));
+    paths.push(path.with_extension("m4a"));
+    paths.push(path.with_file_name(format!(
+        "{}-poster.jpg",
+        path.file_stem().unwrap_or_default().to_string_lossy()
+    )));
+    paths.push(path.with_file_name(format!(
+        "{}-fanart.jpg",
+        path.file_stem().unwrap_or_default().to_string_lossy()
+    )));
+    paths.push(path.with_extension("nfo"));
+    paths.push(path.with_extension("zh-CN.default.ass"));
+    paths.push(path.with_extension("srt"));
+    for candidate in paths {
+        match tokio::fs::remove_file(&candidate).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 async fn reset_source_latest_row_at(
@@ -371,6 +388,13 @@ pub async fn clear_and_reset_video_status(
     let Some(video_info) = video_info else {
         return Err(InnerApiError::NotFound(id).into());
     };
+    let page_paths = page::Entity::find()
+        .filter(page::Column::VideoId.eq(id))
+        .all(&db)
+        .await?
+        .into_iter()
+        .filter_map(|page| page.path.filter(|path| !path.is_empty()))
+        .collect::<Vec<_>>();
     let txn = db.begin().await?;
     let mut video_info = video_info.into_active_model();
     video_info.single_page = Set(None);
@@ -383,15 +407,13 @@ pub async fn clear_and_reset_video_status(
         .await?;
     txn.commit().await?;
     let video_info = video_info.try_into_model()?;
-    let warning = if video_info.path.is_empty() {
-        None
-    } else {
-        tokio::fs::remove_dir_all(&video_info.path)
-            .await
-            .context(format!("删除本地路径「{}」失败", video_info.path))
-            .err()
-            .map(|e| format!("{:#}", e))
-    };
+    let mut warnings = Vec::new();
+    for path in page_paths {
+        if let Err(error) = remove_page_files(FsPath::new(&path)).await {
+            warnings.push(format!("删除本地文件「{}」失败：{:#}", path, error));
+        }
+    }
+    let warning = (!warnings.is_empty()).then(|| warnings.join("\n"));
     Ok(ApiResponse::ok(ClearAndResetVideoStatusResponse {
         warning,
         video: VideoInfo {

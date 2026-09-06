@@ -15,13 +15,13 @@ use tokio::fs;
 
 use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::{BestStream, BiliClient, BiliError, Dimension, PageInfo, Video, VideoInfo};
-use crate::config::{ARGS, Config, PathSafeTemplate};
+use crate::config::{ARGS, Config};
 use crate::downloader::Downloader;
 use crate::error::ExecutionStatus;
 use crate::notifier::DownloadNotifyInfo;
 use crate::utils::danmaku_schedule::should_sync_danmaku;
 use crate::utils::download_context::DownloadContext;
-use crate::utils::format_arg::{page_format_args, video_format_args};
+use crate::utils::filenamify::filenamify;
 use crate::utils::model::{
     create_pages, create_videos, filter_unfilled_videos, filter_unhandled_video_pages, set_video_models_invalid,
     update_pages_model, update_video_detail_models, update_videos_model,
@@ -396,18 +396,11 @@ pub async fn download_video_pages(
 ) -> Result<video::ActiveModel> {
     let mut status = VideoStatus::from(video_model.download_status);
     let separate_status = status.should_run();
-    // 未记录路径时填充，已经填充过路径时使用现有的
-    let base_path = if !video_model.path.is_empty() {
-        PathBuf::from(&video_model.path)
-    } else {
-        cx.video_source.path().join(
-            cx.template
-                .path_safe_render("video", &video_format_args(&video_model, &cx.config.time_format))?,
-        )
-    };
+    // 所有媒体直接保存到视频源根目录，不再按视频名称创建子目录。
+    let base_path = PathBuf::from(cx.video_source.path());
     fs::create_dir_all(&base_path).await?;
 
-    let base_path = dunce::canonicalize(base_path).context("canonicalize video path failed")?;
+    let video_name = filenamify(&video_model.name);
     let is_single_page = video_model.single_page.context("single_page is null")?;
     let uppers_with_path = video_model
         .uppers()
@@ -433,15 +426,15 @@ pub async fn download_video_pages(
         fetch_video_poster(
             separate_status[0] && !is_single_page && !cx.config.skip_option.no_poster,
             &video_model,
-            base_path.join("poster.jpg"),
-            base_path.join("fanart.jpg"),
+            base_path.join(format!("{}-poster.jpg", video_name)),
+            base_path.join(format!("{}-fanart.jpg", video_name)),
             cx
         ),
         // 生成视频信息的 nfo
         generate_video_nfo(
             separate_status[1] && !is_single_page && !cx.config.skip_option.no_video_nfo,
             &video_model,
-            base_path.join("tvshow.nfo"),
+            base_path.join(format!("{}.tvshow.nfo", video_name)),
             cx
         ),
         // 下载 Up 主头像
@@ -557,91 +550,26 @@ pub async fn download_page(
     let mut status = PageStatus::from(page_model.download_status);
     let separate_status = status.should_run();
     let is_single_page = video_model.single_page.context("single_page is null")?;
-    // 未记录路径时填充，已经填充过路径时使用现有的
-    let (base_path, base_name) = if let Some(old_video_path) = &page_model.path
-        && !old_video_path.is_empty()
-    {
-        let old_video_path = Path::new(old_video_path);
-        if is_single_page {
-            // 单页下的路径是 {base_path}/{base_name}.{media_extension}
-            (
-                old_video_path.parent().context("invalid page path format")?,
-                old_video_path
-                    .file_stem()
-                    .context("invalid page path format")?
-                    .to_string_lossy()
-                    .to_string(),
-            )
-        } else {
-            // 多页下的路径是 {base_path}/Season 1/{base_name} - S01Exx.{media_extension}
-            (
-                old_video_path
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .context("invalid page path format")?,
-                old_video_path
-                    .file_stem()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .and_then(|name| name.rsplit_once(" - ").map(|(base_name, _)| base_name.to_string()))
-                    .context("invalid page path format")?,
-            )
-        }
-    } else {
-        (
-            base_path,
-            cx.template.path_safe_render(
-                "page",
-                &page_format_args(video_model, &page_model, &cx.config.time_format),
-            )?,
-        )
-    };
+    // 路径规则统一使用视频源根目录，忽略数据库中旧的 BVID/子目录路径。
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
     let audio_only = cx.filter_option.audio_only && !cx.filter_option.save_audio;
     let save_audio = cx.filter_option.save_audio;
-    let video_extension = "mp4";
-    let audio_base_path = (cx.filter_option.audio_only || save_audio).then(|| {
-        if save_audio {
-            base_path.join("Audio")
-        } else {
-            base_path.clone()
-        }
-    });
-    let (poster_path, video_path, audio_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
-        (
-            base_path.join(format!("{}-poster.jpg", base_name)),
-            base_path.join(format!("{}.{}", base_name, video_extension)),
-            audio_base_path.map(|path| path.join(format!("{}.m4a", base_name))),
-            base_path.join(format!("{}.nfo", base_name)),
-            base_path.join(format!("{}.zh-CN.default.ass", base_name)),
-            Some(base_path.join(format!("{}-fanart.jpg", base_name))),
-            base_path.join(format!("{}.srt", base_name)),
-        )
+    let base_name = filenamify(&video_model.name);
+    let page_name = if is_single_page {
+        base_name.clone()
     } else {
-        (
-            base_path
-                .join("Season 1")
-                .join(format!("{} - S01E{:0>2}-thumb.jpg", base_name, page_model.pid)),
-            base_path.join("Season 1").join(format!(
-                "{} - S01E{:0>2}.{}",
-                base_name, page_model.pid, video_extension
-            )),
-            audio_base_path.map(|path| {
-                path.join("Season 1")
-                    .join(format!("{} - S01E{:0>2}.m4a", base_name, page_model.pid))
-            }),
-            base_path
-                .join("Season 1")
-                .join(format!("{} - S01E{:0>2}.nfo", base_name, page_model.pid)),
-            base_path
-                .join("Season 1")
-                .join(format!("{} - S01E{:0>2}.zh-CN.default.ass", base_name, page_model.pid)),
-            // 对于多页视频，会在上一步 fetch_video_poster 中获取剧集的 fanart，无需在此处下载单集的
-            None,
-            base_path
-                .join("Season 1")
-                .join(format!("{} - S01E{:0>2}.srt", base_name, page_model.pid)),
-        )
+        format!("{} - P{:0>2}", base_name, page_model.pid)
     };
+    let video_extension = "mp4";
+    let (poster_path, video_path, audio_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = (
+        base_path.join(format!("{}-poster.jpg", page_name)),
+        base_path.join(format!("{}.{}", page_name, video_extension)),
+        (audio_only || save_audio).then(|| base_path.join(format!("{}.m4a", page_name))),
+        base_path.join(format!("{}.nfo", page_name)),
+        base_path.join(format!("{}.zh-CN.default.ass", page_name)),
+        is_single_page.then(|| base_path.join(format!("{}-fanart.jpg", page_name))),
+        base_path.join(format!("{}.srt", page_name)),
+    );
     let media_path = if audio_only {
         audio_path.clone().unwrap_or(video_path.clone())
     } else {
@@ -676,6 +604,7 @@ pub async fn download_page(
         // 下载分页视频与可选的音频副本
         fetch_page_video(
             separate_status[1]
+                || (!audio_only && !video_path.exists())
                 || (audio_only && audio_path.as_deref().is_some_and(|path| !path.exists()))
                 || (save_audio && saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists())),
             video_model,
