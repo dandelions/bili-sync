@@ -792,7 +792,7 @@ pub async fn fetch_page_video(
         BestStream::Audio(audio_stream) => {
             let audio_path = audio_path.unwrap_or(video_path);
             cx.downloader
-                .multi_fetch_audio(
+                .multi_fetch_audio_track(
                     &audio_stream.urls(cx.config.cdn_sorting),
                     audio_path,
                     &cx.config.concurrent_limit.download,
@@ -847,7 +847,7 @@ pub async fn fetch_page_video(
             audio: Some(audio_stream),
         } if cx.filter_option.audio_only && !cx.filter_option.save_audio => {
             cx.downloader
-                .multi_fetch_audio(
+                .multi_fetch_audio_track(
                     &audio_stream.urls(cx.config.cdn_sorting),
                     audio_path.unwrap_or(video_path),
                     &cx.config.concurrent_limit.download,

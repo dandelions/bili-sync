@@ -59,6 +59,19 @@ impl Downloader {
     }
 
     /// 下载输入流并提取/转换音频；输入可以是独立音频流，也可以是混合视频流。
+    /// Download an independent audio track and remux it without re-encoding.
+    pub async fn multi_fetch_audio_track(
+        &self,
+        audio_urls: &[&str],
+        path: &Path,
+        concurrent_download: &ConcurrentDownloadLimit,
+    ) -> Result<()> {
+        let audio_temp_file = self.multi_fetch_internal(audio_urls, true, concurrent_download).await?;
+        let result = self.remux_audio(audio_temp_file.file_path(), path).await;
+        audio_temp_file.drop_async().await;
+        result
+    }
+
     pub async fn multi_fetch_audio(
         &self,
         audio_urls: &[&str],
@@ -69,6 +82,41 @@ impl Downloader {
         let result = self.extract_audio(audio_temp_file.file_path(), path).await;
         audio_temp_file.drop_async().await;
         result
+    }
+
+    async fn remux_audio(&self, source_path: &Path, path: &Path) -> Result<()> {
+        let final_temp_file = TempFile::new().await?;
+        let output = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"))
+            .args([
+                "-i",
+                source_path.to_string_lossy().as_ref(),
+                "-map",
+                "0:a:0",
+                "-vn",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "faststart",
+                "-f",
+                "mp4",
+                "-y",
+                final_temp_file.file_path().to_string_lossy().as_ref(),
+            ])
+            .output()
+            .await
+            .context("failed to run ffmpeg for audio remux")?;
+        if !output.status.success() {
+            bail!(
+                "ffmpeg audio remux error: {}",
+                str::from_utf8(&output.stderr).unwrap_or("unknown")
+            );
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        let result = fs::copy(final_temp_file.file_path(), path).await.map(|_| ());
+        final_temp_file.drop_async().await;
+        result.map_err(Into::into)
     }
 
     pub async fn extract_audio(&self, source_path: &Path, path: &Path) -> Result<()> {
