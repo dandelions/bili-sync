@@ -15,13 +15,13 @@ use tokio::fs;
 
 use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::{BestStream, BiliClient, BiliError, Dimension, PageInfo, Video, VideoInfo};
-use crate::config::{ARGS, Config};
+use crate::config::{ARGS, Config, PathSafeTemplate};
 use crate::downloader::Downloader;
 use crate::error::ExecutionStatus;
 use crate::notifier::DownloadNotifyInfo;
 use crate::utils::danmaku_schedule::should_sync_danmaku;
 use crate::utils::download_context::DownloadContext;
-use crate::utils::filenamify::filenamify;
+use crate::utils::format_arg::video_format_args;
 use crate::utils::model::{
     create_pages, create_videos, filter_unfilled_videos, filter_unhandled_video_pages, set_video_models_invalid,
     update_pages_model, update_video_detail_models, update_videos_model,
@@ -400,7 +400,14 @@ pub async fn download_video_pages(
     let base_path = PathBuf::from(cx.video_source.path());
     fs::create_dir_all(&base_path).await?;
 
-    let video_name = filenamify(&video_model.name);
+    let rendered_video_name = cx
+        .template
+        .path_safe_render("video", &video_format_args(&video_model, &cx.config.time_format))?;
+    let video_name = Path::new(&rendered_video_name)
+        .file_name()
+        .context("video_name 模板未生成有效文件名")?
+        .to_string_lossy()
+        .to_string();
     let is_single_page = video_model.single_page.context("single_page is null")?;
     let uppers_with_path = video_model
         .uppers()
@@ -554,7 +561,14 @@ pub async fn download_page(
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
     let audio_only = cx.filter_option.audio_only && !cx.filter_option.save_audio;
     let save_audio = cx.filter_option.save_audio;
-    let base_name = filenamify(&video_model.name);
+    let rendered_video_name = cx
+        .template
+        .path_safe_render("video", &video_format_args(video_model, &cx.config.time_format))?;
+    let base_name = Path::new(&rendered_video_name)
+        .file_name()
+        .context("video_name 模板未生成有效文件名")?
+        .to_string_lossy()
+        .to_string();
     let page_name = if is_single_page {
         base_name.clone()
     } else {
