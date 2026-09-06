@@ -16,7 +16,7 @@
 		<Label for="audio-only">仅下载音频</Label>
 	</div>
 	<p class="text-muted-foreground text-sm">
-		开启后只请求并保存音频流，不下载视频流；文件保存为 M4A。
+		开启后优先只下载独立音频流；没有独立音频流时，会下载混合流后由 ffmpeg 提取音频，文件保存为 M4A。
 	</p>
 	<div class="space-y-4">
 		<Label>流质量过滤</Label>

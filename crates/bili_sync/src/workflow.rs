@@ -770,8 +770,15 @@ pub async fn fetch_page_video(
                 )
                 .await?
         }
-        BestStream::Mixed(_mix_stream) if cx.filter_option.audio_only => {
-            bail!("当前视频仅提供混合视频流，无法只下载音频")
+        BestStream::Mixed(mix_stream) if cx.filter_option.audio_only => {
+            // 混合流没有独立音频 URL，只能下载完整流后由 ffmpeg 提取音频。
+            cx.downloader
+                .multi_fetch_audio(
+                    &mix_stream.urls(cx.config.cdn_sorting),
+                    page_path,
+                    &cx.config.concurrent_limit.download,
+                )
+                .await?
         }
         BestStream::Mixed(mix_stream) => {
             cx.downloader

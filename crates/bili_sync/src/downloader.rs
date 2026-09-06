@@ -58,7 +58,7 @@ impl Downloader {
         Ok(())
     }
 
-    /// 下载并封装音频流，不请求对应的视频流。
+    /// 下载输入流并提取/转换音频；输入可以是独立音频流，也可以是混合视频流。
     pub async fn multi_fetch_audio(
         &self,
         audio_urls: &[&str],
