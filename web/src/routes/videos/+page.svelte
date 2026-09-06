@@ -6,6 +6,7 @@
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SquarePenIcon from '@lucide/svelte/icons/square-pen';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import Music2Icon from '@lucide/svelte/icons/music-2';
 	import Grid2X2Icon from '@lucide/svelte/icons/grid-2x2';
 	import ListIcon from '@lucide/svelte/icons/list';
 	import InfoIcon from '@lucide/svelte/icons/info';
@@ -57,6 +58,8 @@
 	let selectedVideoIds = new Set<number>();
 	let deleteDialogOpen = false;
 	let deleting = false;
+	let extractAudioDialogOpen = false;
+	let extractingAudio = false;
 
 	let lastSearch: string | null = null;
 
@@ -195,6 +198,29 @@
 			toast.error('删除视频失败', { description: (error as ApiError).message });
 		} finally {
 			deleting = false;
+		}
+	}
+
+	async function handleExtractAudio() {
+		if (!selectedVideoIds.size) return;
+		extractingAudio = true;
+		try {
+			const result = await api.extractAudio([...selectedVideoIds]);
+			const data = result.data;
+			selectedVideoIds = new Set();
+			extractAudioDialogOpen = false;
+			if (data.warnings.length) {
+				toast.warning(`已提取 ${data.extracted_count} 个音频文件，但有部分失败`, {
+					description: data.warnings.join('；')
+				});
+			} else {
+				toast.success(`已提取 ${data.extracted_count} 个音频文件`);
+			}
+		} catch (error) {
+			console.error('提取音频失败：', error);
+			toast.error('提取音频失败', { description: (error as ApiError).message });
+		} finally {
+			extractingAudio = false;
 		}
 	}
 
@@ -556,10 +582,20 @@
 			{#if selectedCount > 0}
 				<Button
 					size="sm"
+					variant="outline"
+					class="h-8 cursor-pointer text-xs font-medium"
+					onclick={() => (extractAudioDialogOpen = true)}
+					disabled={extractingAudio || deleting || loading}
+				>
+					<Music2Icon class="h-3.5 w-3.5" />
+					提取音频 {selectedCount} 个
+				</Button>
+				<Button
+					size="sm"
 					variant="destructive"
 					class="h-8 cursor-pointer text-xs font-medium"
 					onclick={() => (deleteDialogOpen = true)}
-					disabled={deleting || loading}
+					disabled={deleting || extractingAudio || loading}
 				>
 					<Trash2Icon class="h-3.5 w-3.5" />
 					删除 {selectedCount} 个
@@ -788,6 +824,24 @@
 			>
 				{#if deleting}<Trash2Icon class="h-4 w-4 animate-pulse" />{/if}
 				{deleting ? '删除中...' : '确认删除'}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root bind:open={extractAudioDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>提取选中视频的音频</AlertDialog.Title>
+			<AlertDialog.Description>
+				将读取选中视频的本地文件，并使用 ffmpeg 提取音频，保存为同名的 m4a 文件。音频会保存到视频目录下的 Audio 子目录。
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel disabled={extractingAudio}>取消</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={handleExtractAudio} disabled={extractingAudio}>
+				{#if extractingAudio}<Music2Icon class="h-4 w-4 animate-pulse" />{/if}
+				{extractingAudio ? '提取中...' : '确认提取'}
 			</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>

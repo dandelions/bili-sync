@@ -1,4 +1,6 @@
 use std::collections::HashSet;
+use std::path::{Path as FsPath, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::extract::{Extension, Path, Query};
@@ -16,20 +18,23 @@ use sea_orm::{
 use crate::api::error::InnerApiError;
 use crate::api::helper::{update_page_download_status, update_video_download_status};
 use crate::api::request::{
-    DeleteVideosRequest, ResetFilteredVideoStatusRequest, ResetVideoStatusRequest, UpdateFilteredVideoStatusRequest,
-    UpdateVideoStatusRequest, VideosRequest,
+    DeleteVideosRequest, ExtractAudioRequest, ResetFilteredVideoStatusRequest, ResetVideoStatusRequest,
+    UpdateFilteredVideoStatusRequest, UpdateVideoStatusRequest, VideosRequest,
 };
 use crate::api::response::{
-    ClearAndResetVideoStatusResponse, DeleteVideosResponse, PageInfo, ResetFilteredVideosResponse, ResetVideoResponse,
-    SimplePageInfo, SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo,
-    VideoResponse, VideosResponse,
+    ClearAndResetVideoStatusResponse, DeleteVideosResponse, ExtractAudioResponse, PageInfo,
+    ResetFilteredVideosResponse, ResetVideoResponse, SimplePageInfo, SimpleVideoInfo,
+    UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
+use crate::bilibili::BiliClient;
+use crate::downloader::Downloader;
 use crate::utils::status::{PageStatus, VideoStatus};
 
 pub(super) fn router() -> Router {
     Router::new()
         .route("/videos", get(get_videos).delete(delete_videos))
+        .route("/videos/extract-audio", post(extract_audio))
         .route("/videos/{id}", get(get_video))
         .route(
             "/videos/{id}/clear-and-reset-status",
@@ -105,6 +110,78 @@ pub async fn get_videos(
             .fetch_page(page)
             .await?,
         total_count,
+    }))
+}
+
+pub async fn extract_audio(
+    Extension(db): Extension<DatabaseConnection>,
+    Extension(bili_client): Extension<Arc<BiliClient>>,
+    Json(request): Json<ExtractAudioRequest>,
+) -> Result<ApiResponse<ExtractAudioResponse>, ApiError> {
+    let ids: HashSet<i32> = request.ids.into_iter().collect();
+    if ids.is_empty() {
+        return Err(InnerApiError::BadRequest("至少选择一个视频".to_string()).into());
+    }
+    let videos = video::Entity::find()
+        .filter(video::Column::Id.is_in(ids.iter().copied()))
+        .find_with_related(page::Entity)
+        .all(&db)
+        .await?;
+    let downloader = Downloader::new(bili_client.client.clone());
+    let mut extracted_count = 0;
+    let mut warnings = Vec::new();
+    for (video, pages) in videos {
+        let Some(is_single_page) = video.single_page else {
+            warnings.push(format!("视频「{}」缺少分页信息", video.name));
+            continue;
+        };
+        for page in pages {
+            let Some(video_path) = page.path.as_deref().filter(|path| !path.is_empty()).map(FsPath::new) else {
+                warnings.push(format!("视频「{}」第 {} 页没有本地视频路径", video.name, page.pid));
+                continue;
+            };
+            if !video_path.is_file() {
+                warnings.push(format!(
+                    "视频「{}」第 {} 页本地文件不存在：{}",
+                    video.name,
+                    page.pid,
+                    video_path.display()
+                ));
+                continue;
+            }
+            let Some(file_stem) = video_path.file_stem() else {
+                warnings.push(format!("视频「{}」第 {} 页本地文件名无效", video.name, page.pid));
+                continue;
+            };
+            let audio_dir = if is_single_page {
+                video_path.parent().map(PathBuf::from).map(|path| path.join("Audio"))
+            } else {
+                video_path
+                    .parent()
+                    .and_then(FsPath::parent)
+                    .map(PathBuf::from)
+                    .map(|path| {
+                        path.join("Audio")
+                            .join(video_path.parent().and_then(FsPath::file_name).unwrap_or_default())
+                    })
+            };
+            let Some(audio_dir) = audio_dir else {
+                warnings.push(format!("视频「{}」第 {} 页本地路径无效", video.name, page.pid));
+                continue;
+            };
+            let audio_path = audio_dir.join(file_stem).with_extension("m4a");
+            match downloader.extract_audio(video_path, &audio_path).await {
+                Ok(()) => extracted_count += 1,
+                Err(error) => warnings.push(format!(
+                    "视频「{}」第 {} 页音频提取失败：{:#}",
+                    video.name, page.pid, error
+                )),
+            }
+        }
+    }
+    Ok(ApiResponse::ok(ExtractAudioResponse {
+        extracted_count,
+        warnings,
     }))
 }
 

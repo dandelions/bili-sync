@@ -47,6 +47,12 @@ pub struct DeleteVideosResponse {
 }
 
 #[derive(Serialize)]
+pub struct ExtractAudioResponse {
+    pub extracted_count: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
 pub struct ResetFilteredVideosResponse {
     pub resetted: bool,
     pub resetted_videos_count: usize,

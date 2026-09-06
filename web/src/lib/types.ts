@@ -65,6 +65,11 @@ export interface DeleteVideosResponse {
 	warnings: string[];
 }
 
+export interface ExtractAudioResponse {
+	extracted_count: number;
+	warnings: string[];
+}
+
 export interface ResetVideoResponse {
 	resetted: boolean;
 	video: VideoInfo;

@@ -154,6 +154,11 @@ pub struct DeleteVideosRequest {
     pub ids: Vec<i32>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ExtractAudioRequest {
+    pub ids: Vec<i32>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct DefaultPathRequest {
     pub name: String,

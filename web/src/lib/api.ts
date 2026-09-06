@@ -5,6 +5,7 @@ import type {
 	CollectionsResponse,
 	Config,
 	DeleteVideosResponse,
+	ExtractAudioResponse,
 	DashBoardResponse,
 	FavoritesResponse,
 	FullSyncVideoSourceRequest,
@@ -166,6 +167,10 @@ class ApiClient {
 		return this.request<DeleteVideosResponse>('/videos', 'DELETE', { ids });
 	}
 
+	async extractAudio(ids: number[]): Promise<ApiResponse<ExtractAudioResponse>> {
+		return this.post<ExtractAudioResponse>('/videos/extract-audio', { ids });
+	}
+
 	async getVideo(id: number): Promise<ApiResponse<VideoResponse>> {
 		return this.get<VideoResponse>(`/videos/${id}`);
 	}
@@ -323,6 +328,7 @@ const api = {
 	getVideoSources: () => apiClient.getVideoSources(),
 	getVideos: (params?: VideosRequest) => apiClient.getVideos(params),
 	deleteVideos: (ids: number[]) => apiClient.deleteVideos(ids),
+	extractAudio: (ids: number[]) => apiClient.extractAudio(ids),
 	getVideo: (id: number) => apiClient.getVideo(id),
 	resetVideoStatus: (id: number, request: ResetVideoStatusRequest) =>
 		apiClient.resetVideoStatus(id, request),
