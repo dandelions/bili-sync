@@ -77,6 +77,8 @@ impl Downloader {
             .args([
                 "-i",
                 source_path.to_string_lossy().as_ref(),
+                "-map",
+                "0:a:0",
                 "-vn",
                 "-c:a",
                 "aac",
@@ -128,12 +130,12 @@ impl Downloader {
             self.multi_fetch_internal(audio_urls, true, concurrent_download)
         )?;
         let result = async {
-            self.merge_streams(video_temp_file.file_path(), audio_temp_file.file_path(), video_path)
-                .await?;
             if let Some(audio_path) = audio_path {
+                // Extract the audio before merging so a video muxing failure does not discard the audio copy.
                 self.extract_audio(audio_temp_file.file_path(), audio_path).await?;
             }
-            Ok(())
+            self.merge_streams(video_temp_file.file_path(), audio_temp_file.file_path(), video_path)
+                .await
         }
         .await;
         tokio::join!(video_temp_file.drop_async(), audio_temp_file.drop_async());
