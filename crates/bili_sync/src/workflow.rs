@@ -587,11 +587,21 @@ pub async fn download_page(
         )
     };
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
-    let media_extension = if cx.filter_option.audio_only { "m4a" } else { "mp4" };
-    let (poster_path, video_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
+    let audio_only = cx.filter_option.audio_only && !cx.filter_option.save_audio;
+    let save_audio = cx.filter_option.save_audio;
+    let video_extension = "mp4";
+    let audio_base_path = (cx.filter_option.audio_only || save_audio).then(|| {
+        if save_audio {
+            base_path.join("Audio")
+        } else {
+            base_path.clone()
+        }
+    });
+    let (poster_path, video_path, audio_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = if is_single_page {
         (
             base_path.join(format!("{}-poster.jpg", base_name)),
-            base_path.join(format!("{}.{}", base_name, media_extension)),
+            base_path.join(format!("{}.{}", base_name, video_extension)),
+            audio_base_path.map(|path| path.join(format!("{}.m4a", base_name))),
             base_path.join(format!("{}.nfo", base_name)),
             base_path.join(format!("{}.zh-CN.default.ass", base_name)),
             Some(base_path.join(format!("{}-fanart.jpg", base_name))),
@@ -604,8 +614,12 @@ pub async fn download_page(
                 .join(format!("{} - S01E{:0>2}-thumb.jpg", base_name, page_model.pid)),
             base_path.join("Season 1").join(format!(
                 "{} - S01E{:0>2}.{}",
-                base_name, page_model.pid, media_extension
+                base_name, page_model.pid, video_extension
             )),
+            audio_base_path.map(|path| {
+                path.join("Season 1")
+                    .join(format!("{} - S01E{:0>2}.m4a", base_name, page_model.pid))
+            }),
             base_path
                 .join("Season 1")
                 .join(format!("{} - S01E{:0>2}.nfo", base_name, page_model.pid)),
@@ -619,6 +633,12 @@ pub async fn download_page(
                 .join(format!("{} - S01E{:0>2}.srt", base_name, page_model.pid)),
         )
     };
+    let media_path = if audio_only {
+        audio_path.clone().unwrap_or(video_path.clone())
+    } else {
+        video_path.clone()
+    };
+    let saved_audio_path = audio_path.as_deref().filter(|_| save_audio);
     let dimension = match (page_model.width, page_model.height) {
         (Some(width), Some(height)) => Some(Dimension {
             width,
@@ -643,8 +663,15 @@ pub async fn download_page(
             fanart_path,
             cx
         ),
-        // 下载分页视频
-        fetch_page_video(separate_status[1], video_model, &page_info, &video_path, cx),
+        // 下载分页视频与可选的音频副本
+        fetch_page_video(
+            separate_status[1] || saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists()),
+            video_model,
+            &page_info,
+            &video_path,
+            saved_audio_path,
+            cx,
+        ),
         // 生成分页视频信息的 nfo
         generate_page_nfo(
             separate_status[2] && !cx.config.skip_option.no_video_nfo,
@@ -707,7 +734,7 @@ pub async fn download_page(
     }
     let mut page_active_model: page::ActiveModel = page_model.into();
     page_active_model.download_status = Set(status.into());
-    page_active_model.path = Set(Some(video_path.to_string_lossy().to_string()));
+    page_active_model.path = Set(Some(media_path.to_string_lossy().to_string()));
     if danmaku_succeeded {
         page_active_model.danmaku_last_synced_at = Set(Some(chrono::Utc::now().naive_utc()));
     }
@@ -749,7 +776,8 @@ pub async fn fetch_page_video(
     should_run: bool,
     video_model: &video::Model,
     page_info: &PageInfo,
-    page_path: &Path,
+    video_path: &Path,
+    audio_path: Option<&Path>,
     cx: DownloadContext<'_>,
 ) -> Result<ExecutionStatus> {
     if !should_run {
@@ -762,32 +790,42 @@ pub async fn fetch_page_video(
         .best_stream(cx.filter_option)?;
     match streams {
         BestStream::Audio(audio_stream) => {
+            let audio_path = audio_path.unwrap_or(video_path);
             cx.downloader
                 .multi_fetch_audio(
                     &audio_stream.urls(cx.config.cdn_sorting),
-                    page_path,
-                    &cx.config.concurrent_limit.download,
-                )
-                .await?
-        }
-        BestStream::Mixed(mix_stream) if cx.filter_option.audio_only => {
-            // 混合流没有独立音频 URL，只能下载完整流后由 ffmpeg 提取音频。
-            cx.downloader
-                .multi_fetch_audio(
-                    &mix_stream.urls(cx.config.cdn_sorting),
-                    page_path,
+                    audio_path,
                     &cx.config.concurrent_limit.download,
                 )
                 .await?
         }
         BestStream::Mixed(mix_stream) => {
-            cx.downloader
-                .multi_fetch(
-                    &mix_stream.urls(cx.config.cdn_sorting),
-                    page_path,
-                    &cx.config.concurrent_limit.download,
-                )
-                .await?
+            if let Some(audio_path) = audio_path {
+                cx.downloader
+                    .multi_fetch_mixed_with_audio(
+                        &mix_stream.urls(cx.config.cdn_sorting),
+                        video_path,
+                        audio_path,
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            } else if cx.filter_option.audio_only {
+                cx.downloader
+                    .multi_fetch_audio(
+                        &mix_stream.urls(cx.config.cdn_sorting),
+                        video_path,
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            } else {
+                cx.downloader
+                    .multi_fetch(
+                        &mix_stream.urls(cx.config.cdn_sorting),
+                        video_path,
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            }
         }
         BestStream::VideoAudio { video: _, audio: None } if cx.filter_option.audio_only => {
             bail!("当前视频没有可用的音频流")
@@ -799,7 +837,7 @@ pub async fn fetch_page_video(
             cx.downloader
                 .multi_fetch(
                     &video_stream.urls(cx.config.cdn_sorting),
-                    page_path,
+                    video_path,
                     &cx.config.concurrent_limit.download,
                 )
                 .await?
@@ -807,11 +845,11 @@ pub async fn fetch_page_video(
         BestStream::VideoAudio {
             video: _,
             audio: Some(audio_stream),
-        } if cx.filter_option.audio_only => {
+        } if cx.filter_option.audio_only && !cx.filter_option.save_audio => {
             cx.downloader
                 .multi_fetch_audio(
                     &audio_stream.urls(cx.config.cdn_sorting),
-                    page_path,
+                    audio_path.unwrap_or(video_path),
                     &cx.config.concurrent_limit.download,
                 )
                 .await?
@@ -821,10 +859,11 @@ pub async fn fetch_page_video(
             audio: Some(audio_stream),
         } => {
             cx.downloader
-                .multi_fetch_and_merge(
+                .multi_fetch_and_merge_with_audio(
                     &video_stream.urls(cx.config.cdn_sorting),
                     &audio_stream.urls(cx.config.cdn_sorting),
-                    page_path,
+                    video_path,
+                    audio_path,
                     &cx.config.concurrent_limit.download,
                 )
                 .await?

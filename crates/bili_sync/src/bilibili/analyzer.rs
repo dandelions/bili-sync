@@ -89,6 +89,8 @@ pub struct FilterOption {
     pub codecs: Vec<VideoCodecs>,
     #[serde(default)]
     pub audio_only: bool,
+    #[serde(default)]
+    pub save_audio: bool,
     pub no_dolby_video: bool,
     pub no_dolby_audio: bool,
     pub no_hdr: bool,
@@ -104,6 +106,7 @@ impl Default for FilterOption {
             audio_min_quality: AudioQuality::Quality64k,
             codecs: vec![VideoCodecs::AVC, VideoCodecs::HEV, VideoCodecs::AV1],
             audio_only: false,
+            save_audio: false,
             no_dolby_video: false,
             no_dolby_audio: false,
             no_hdr: false,
@@ -218,7 +221,7 @@ impl PageAnalyzer {
             )]);
         }
         let mut streams: Vec<Stream> = Vec::new();
-        if !filter_option.audio_only {
+        if !filter_option.audio_only || filter_option.save_audio {
             for video in self
                 .info
                 .pointer_mut("/dash/video")
@@ -324,7 +327,7 @@ impl PageAnalyzer {
             }
             _ => unreachable!(),
         });
-        if filter_option.audio_only {
+        if filter_option.audio_only && !filter_option.save_audio {
             return Ok(BestStream::Audio(audio.context("no audio stream found")?));
         }
         Ok(BestStream::VideoAudio {
@@ -420,6 +423,39 @@ mod tests {
             }
             _ => panic!("expected an audio-only stream"),
         }
+    }
+
+    #[test]
+    fn test_save_audio_keeps_video_stream() {
+        let mut analyzer = PageAnalyzer::new(serde_json::json!({
+            "dash": {
+                "video": [{
+                    "baseUrl": "https://example.com/video.m4s",
+                    "backupUrl": [],
+                    "id": 80,
+                    "codecid": 7
+                }],
+                "audio": [{
+                    "baseUrl": "https://example.com/audio.m4s",
+                    "backupUrl": [],
+                    "id": 30280
+                }]
+            }
+        }));
+        let filter_option = FilterOption {
+            audio_only: true,
+            save_audio: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            analyzer
+                .best_stream(&filter_option)
+                .expect("video and audio streams should be selected"),
+            BestStream::VideoAudio {
+                video: Stream::DashVideo { .. },
+                audio: Some(Stream::DashAudio { .. })
+            }
+        ));
     }
 
     #[ignore = "only for manual test"]

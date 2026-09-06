@@ -56,7 +56,7 @@
 	let editFilterOption: FilterOption | null = null;
 
 	function normalizeFilterOption(option: FilterOption): FilterOption {
-		return { ...option, audio_only: option.audio_only ?? false };
+		return { ...option, audio_only: option.audio_only ?? false, save_audio: option.save_audio ?? false };
 	}
 
 	// 规则评估对话框状态

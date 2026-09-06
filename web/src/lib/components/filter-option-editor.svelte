@@ -16,7 +16,14 @@
 		<Label for="audio-only">仅下载音频</Label>
 	</div>
 	<p class="text-muted-foreground text-sm">
-		开启后优先只下载独立音频流；没有独立音频流时，会下载混合流后由 ffmpeg 提取音频，文件保存为 M4A。
+		开启后只保存 M4A 音频文件；没有独立音频流时，会下载混合流后由 ffmpeg 提取音频。
+	</p>
+	<div class="flex items-center space-x-2">
+		<Switch id="save-audio" bind:checked={value.save_audio} {disabled} />
+		<Label for="save-audio">同时保存视频和音频</Label>
+	</div>
+	<p class="text-muted-foreground text-sm">
+		开启后保存视频文件，并在视频目录的 Audio 子目录中保存对应的 M4A 音频文件。
 	</p>
 	<div class="space-y-4">
 		<Label>流质量过滤</Label>

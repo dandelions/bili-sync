@@ -66,11 +66,17 @@ impl Downloader {
         concurrent_download: &ConcurrentDownloadLimit,
     ) -> Result<()> {
         let audio_temp_file = self.multi_fetch_internal(audio_urls, true, concurrent_download).await?;
+        let result = self.extract_audio(audio_temp_file.file_path(), path).await;
+        audio_temp_file.drop_async().await;
+        result
+    }
+
+    pub async fn extract_audio(&self, source_path: &Path, path: &Path) -> Result<()> {
         let final_temp_file = TempFile::new().await?;
         let output = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"))
             .args([
                 "-i",
-                audio_temp_file.file_path().to_string_lossy().as_ref(),
+                source_path.to_string_lossy().as_ref(),
                 "-vn",
                 "-c:a",
                 "aac",
@@ -93,9 +99,9 @@ impl Downloader {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        fs::copy(final_temp_file.file_path(), path).await?;
-        tokio::join!(audio_temp_file.drop_async(), final_temp_file.drop_async());
-        Ok(())
+        let result = fs::copy(final_temp_file.file_path(), path).await.map(|_| ());
+        final_temp_file.drop_async().await;
+        result.map_err(Into::into)
     }
 
     pub async fn multi_fetch_and_merge(
@@ -105,17 +111,63 @@ impl Downloader {
         path: &Path,
         concurrent_download: &ConcurrentDownloadLimit,
     ) -> Result<()> {
+        self.multi_fetch_and_merge_with_audio(video_urls, audio_urls, path, None, concurrent_download)
+            .await
+    }
+
+    pub async fn multi_fetch_and_merge_with_audio(
+        &self,
+        video_urls: &[&str],
+        audio_urls: &[&str],
+        video_path: &Path,
+        audio_path: Option<&Path>,
+        concurrent_download: &ConcurrentDownloadLimit,
+    ) -> Result<()> {
         let (video_temp_file, audio_temp_file) = tokio::try_join!(
             self.multi_fetch_internal(video_urls, true, concurrent_download),
             self.multi_fetch_internal(audio_urls, true, concurrent_download)
         )?;
+        let result = async {
+            self.merge_streams(video_temp_file.file_path(), audio_temp_file.file_path(), video_path)
+                .await?;
+            if let Some(audio_path) = audio_path {
+                self.extract_audio(audio_temp_file.file_path(), audio_path).await?;
+            }
+            Ok(())
+        }
+        .await;
+        tokio::join!(video_temp_file.drop_async(), audio_temp_file.drop_async());
+        result
+    }
+
+    pub async fn multi_fetch_mixed_with_audio(
+        &self,
+        urls: &[&str],
+        video_path: &Path,
+        audio_path: &Path,
+        concurrent_download: &ConcurrentDownloadLimit,
+    ) -> Result<()> {
+        let temp_file = self.multi_fetch_internal(urls, true, concurrent_download).await?;
+        let result = async {
+            if let Some(parent) = video_path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+            fs::copy(temp_file.file_path(), video_path).await?;
+            self.extract_audio(temp_file.file_path(), audio_path).await
+        }
+        .await;
+        temp_file.drop_async().await;
+        result
+    }
+
+    async fn merge_streams(&self, video_path: &Path, audio_path: &Path, path: &Path) -> Result<()> {
         let final_temp_file = TempFile::new().await?;
         let output = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"))
             .args([
                 "-i",
-                video_temp_file.file_path().to_string_lossy().as_ref(),
+                video_path.to_string_lossy().as_ref(),
                 "-i",
-                audio_temp_file.file_path().to_string_lossy().as_ref(),
+                audio_path.to_string_lossy().as_ref(),
                 "-c",
                 "copy",
                 "-strict",
@@ -134,13 +186,9 @@ impl Downloader {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        fs::copy(final_temp_file.file_path(), path).await?;
-        tokio::join!(
-            video_temp_file.drop_async(),
-            audio_temp_file.drop_async(),
-            final_temp_file.drop_async()
-        );
-        Ok(())
+        let result = fs::copy(final_temp_file.file_path(), path).await.map(|_| ());
+        final_temp_file.drop_async().await;
+        result.map_err(Into::into)
     }
 
     async fn multi_fetch_internal(
