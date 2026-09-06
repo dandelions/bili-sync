@@ -142,10 +142,27 @@ pub async fn delete_videos(
         .all(&db)
         .await?;
     let deleted_count = videos.len();
+    let mut favorite_ids = HashSet::new();
+    let mut collection_ids = HashSet::new();
+    let mut submission_ids = HashSet::new();
+    let mut watch_later_ids = HashSet::new();
     let paths = videos
         .into_iter()
-        .filter(|video| !video.path.is_empty())
-        .map(|video| (video.id, video.path))
+        .filter_map(|video| {
+            if let Some(id) = video.favorite_id {
+                favorite_ids.insert(id);
+            }
+            if let Some(id) = video.collection_id {
+                collection_ids.insert(id);
+            }
+            if let Some(id) = video.submission_id {
+                submission_ids.insert(id);
+            }
+            if let Some(id) = video.watch_later_id {
+                watch_later_ids.insert(id);
+            }
+            (!video.path.is_empty()).then_some((video.id, video.path))
+        })
         .collect::<Vec<_>>();
     let txn = db.begin().await?;
     page::Entity::delete_many()
@@ -157,6 +174,7 @@ pub async fn delete_videos(
         .exec(&txn)
         .await?;
     txn.commit().await?;
+    reset_source_latest_row_at(&db, &favorite_ids, &collection_ids, &submission_ids, &watch_later_ids).await?;
 
     let mut warnings = Vec::new();
     for (id, path) in paths {
@@ -168,6 +186,45 @@ pub async fn delete_videos(
         deleted_count,
         warnings,
     }))
+}
+
+async fn reset_source_latest_row_at(
+    db: &DatabaseConnection,
+    favorite_ids: &HashSet<i32>,
+    collection_ids: &HashSet<i32>,
+    submission_ids: &HashSet<i32>,
+    watch_later_ids: &HashSet<i32>,
+) -> Result<()> {
+    let reset_at = chrono::DateTime::UNIX_EPOCH.naive_utc();
+    if !favorite_ids.is_empty() {
+        favorite::Entity::update_many()
+            .col_expr(favorite::Column::LatestRowAt, Expr::value(reset_at))
+            .filter(favorite::Column::Id.is_in(favorite_ids.iter().copied()))
+            .exec(db)
+            .await?;
+    }
+    if !collection_ids.is_empty() {
+        collection::Entity::update_many()
+            .col_expr(collection::Column::LatestRowAt, Expr::value(reset_at))
+            .filter(collection::Column::Id.is_in(collection_ids.iter().copied()))
+            .exec(db)
+            .await?;
+    }
+    if !submission_ids.is_empty() {
+        submission::Entity::update_many()
+            .col_expr(submission::Column::LatestRowAt, Expr::value(reset_at))
+            .filter(submission::Column::Id.is_in(submission_ids.iter().copied()))
+            .exec(db)
+            .await?;
+    }
+    if !watch_later_ids.is_empty() {
+        watch_later::Entity::update_many()
+            .col_expr(watch_later::Column::LatestRowAt, Expr::value(reset_at))
+            .filter(watch_later::Column::Id.is_in(watch_later_ids.iter().copied()))
+            .exec(db)
+            .await?;
+    }
+    Ok(())
 }
 
 pub async fn reset_video_status(

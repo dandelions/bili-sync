@@ -11,6 +11,7 @@
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import CircleCheckBigIcon from '@lucide/svelte/icons/circle-check-big';
 	import CircleXIcon from '@lucide/svelte/icons/circle-x';
+	import DownloadIcon from '@lucide/svelte/icons/download';
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import HeartIcon from '@lucide/svelte/icons/heart';
@@ -78,6 +79,7 @@
 	let fullSyncType = '';
 	let fullSyncDeleteLocal = false;
 	let fullSyncing = false;
+	let downloadingSourceId: string | null = null;
 
 	// 编辑表单数据
 	let editForm = {
@@ -152,6 +154,20 @@
 		fullSyncType = type;
 		fullSyncDeleteLocal = false;
 		showFullSyncDialog = true;
+	}
+
+	async function downloadVideoSource(type: string, source: VideoSourceDetail) {
+		const key = `${type}:${source.id}`;
+		if (downloadingSourceId) return;
+		downloadingSourceId = key;
+		try {
+			await api.downloadVideoSource(type, source.id);
+			toast.success('已触发下载任务', { description: `视频源「${source.name}」将开始下载` });
+		} catch (error) {
+			toast.error('触发下载任务失败', { description: (error as ApiError).message });
+		} finally {
+			downloadingSourceId = null;
+		}
 	}
 
 	async function fullSyncVideoSource() {
@@ -487,6 +503,22 @@
 													</Tooltip.Trigger>
 													<Tooltip.Content>
 														<p class="text-xs">重新评估规则</p>
+													</Tooltip.Content>
+												</Tooltip.Root>
+												<Tooltip.Root disableHoverableContent={true}>
+													<Tooltip.Trigger>
+														<Button
+															size="sm"
+															variant="outline"
+															onclick={() => downloadVideoSource(key, source)}
+															disabled={downloadingSourceId === `${key}:${source.id}`}
+															class="h-8 w-8 p-0"
+														>
+															<DownloadIcon class={downloadingSourceId === `${key}:${source.id}` ? 'h-3 w-3 animate-pulse' : 'h-3 w-3'} />
+														</Button>
+													</Tooltip.Trigger>
+													<Tooltip.Content>
+														<p class="text-xs">下载此视频源</p>
 													</Tooltip.Content>
 												</Tooltip.Root>
 												<Tooltip.Root disableHoverableContent={true}>

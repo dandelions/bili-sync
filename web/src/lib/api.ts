@@ -260,6 +260,10 @@ class ApiClient {
 		return this.post<boolean>(`/video-sources/${type}/${id}/evaluate`, null);
 	}
 
+	async downloadVideoSource(type: string, id: number): Promise<ApiResponse<boolean>> {
+		return this.post<boolean>(`/video-sources/${type}/${id}/download`);
+	}
+
 	async fullSyncVideoSource(
 		type: string,
 		id: number,
@@ -343,6 +347,7 @@ const api = {
 	removeVideoSource: (type: string, id: number) => apiClient.removeVideoSource(type, id),
 	evaluateVideoSourceRules: (type: string, id: number) =>
 		apiClient.evaluateVideoSourceRules(type, id),
+	downloadVideoSource: (type: string, id: number) => apiClient.downloadVideoSource(type, id),
 	fullSyncVideoSource: (type: string, id: number, data: { delete_local: boolean }) =>
 		apiClient.fullSyncVideoSource(type, id, data),
 	getDefaultPath: (type: string, name: string) => apiClient.getDefaultPath(type, name),

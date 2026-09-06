@@ -43,6 +43,7 @@ pub(super) fn router() -> Router {
             put(update_video_source).delete(remove_video_source),
         )
         .route("/video-sources/{type}/{id}/evaluate", post(evaluate_video_source))
+        .route("/video-sources/{type}/{id}/download", post(download_video_source))
         .route("/video-sources/{type}/{id}/full-sync", post(full_sync_video_source))
         .route("/video-sources/favorites", post(insert_favorite))
         .route("/video-sources/collections", post(insert_collection))
@@ -302,6 +303,15 @@ pub async fn remove_video_source(
         .await?;
     video_source.delete_from_db(&txn).await?;
     txn.commit().await?;
+    Ok(ApiResponse::ok(true))
+}
+
+pub async fn download_video_source(
+    Path((source_type, id)): Path<(String, i32)>,
+) -> Result<ApiResponse<bool>, ApiError> {
+    crate::task::DownloadTaskManager::get()
+        .download_source_once(&source_type, id)
+        .await?;
     Ok(ApiResponse::ok(true))
 }
 

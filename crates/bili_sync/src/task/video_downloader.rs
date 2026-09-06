@@ -3,12 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use sea_orm::DatabaseConnection;
+use bili_sync_entity::*;
+use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::Serialize;
 use tokio::sync::{OnceCell, watch};
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::adapter::VideoSource;
+use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::{self, BiliClient, BiliError};
 use crate::config::{ARGS, Config, TEMPLATE, Trigger, VersionedConfig};
 use crate::utils::model::get_enabled_video_sources;
@@ -76,6 +77,85 @@ impl DownloadTaskManager {
             .add(Job::new_one_shot_async(
                 Duration::from_secs(0),
                 DownloadTaskManager::download_video_task(self.cx.clone()),
+            )?)
+            .await?;
+        Ok(())
+    }
+
+    /// 手动执行指定视频源的一次下载任务
+    pub async fn download_source_once(&self, source_type: &str, source_id: i32) -> Result<()> {
+        let source = match source_type {
+            "favorites" => favorite::Entity::find_by_id(source_id)
+                .one(&self.cx.connection)
+                .await?
+                .map(VideoSourceEnum::from),
+            "collections" => collection::Entity::find_by_id(source_id)
+                .one(&self.cx.connection)
+                .await?
+                .map(VideoSourceEnum::from),
+            "submissions" => submission::Entity::find_by_id(source_id)
+                .one(&self.cx.connection)
+                .await?
+                .map(VideoSourceEnum::from),
+            "watch_later" => watch_later::Entity::find_by_id(source_id)
+                .one(&self.cx.connection)
+                .await?
+                .map(VideoSourceEnum::from),
+            _ => bail!("Invalid video source type"),
+        }
+        .context("video source not found")?;
+        let cx = self.cx.clone();
+        let _ = self
+            .sched
+            .lock()
+            .await
+            .add(Job::new_one_shot_async(
+                Duration::from_secs(0),
+                move |_uuid, _scheduler| {
+                    let cx = cx.clone();
+                    let source = source.clone();
+                    Box::pin(async move {
+                        let _lock = cx.running.lock().await;
+                        let started_at = chrono::Local::now();
+                        let previous_status = *cx.status_rx.borrow();
+                        let _ = cx.status_tx.send(TaskStatus {
+                            is_running: true,
+                            last_run: Some(started_at),
+                            last_finish: None,
+                            next_run: previous_status.next_run,
+                        });
+                        let config = VersionedConfig::get().snapshot();
+                        let template = TEMPLATE.snapshot();
+                        let result = async {
+                            config.check()?;
+                            let mixin_key = cx
+                                .bili_client
+                                .wbi_img(&config.credential)
+                                .await?
+                                .into_mixin_key()
+                                .context("解析 mixin key 失败")?;
+                            bilibili::set_global_mixin_key(mixin_key);
+                            let bili_client = cx.bili_client.snapshot()?;
+                            process_video_source(source, &bili_client, &cx.connection, &template, &config).await
+                        }
+                        .await;
+                        if let Err(error) = result {
+                            error_and_notify(
+                                &config,
+                                &cx.bili_client,
+                                format!("手动下载视频源时遇到错误：{:#}", error),
+                                &error,
+                            );
+                        }
+                        let last_status = *cx.status_rx.borrow();
+                        let _ = cx.status_tx.send(TaskStatus {
+                            is_running: false,
+                            last_run: last_status.last_run,
+                            last_finish: Some(chrono::Local::now()),
+                            next_run: last_status.next_run,
+                        });
+                    })
+                },
             )?)
             .await?;
         Ok(())
