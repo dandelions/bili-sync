@@ -404,6 +404,9 @@ export interface TaskStatus {
 	last_run: Date | null;
 	last_finish: Date | null;
 	next_run: Date | null;
+	source_type: string | null;
+	source_id: number | null;
+	is_paused: boolean;
 }
 
 export interface UpdateVideoSourceResponse {

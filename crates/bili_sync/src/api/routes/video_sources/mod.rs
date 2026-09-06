@@ -44,6 +44,8 @@ pub(super) fn router() -> Router {
         )
         .route("/video-sources/{type}/{id}/evaluate", post(evaluate_video_source))
         .route("/video-sources/{type}/{id}/download", post(download_video_source))
+        .route("/video-sources/{type}/{id}/download/pause", post(pause_video_source))
+        .route("/video-sources/{type}/{id}/download/resume", post(resume_video_source))
         .route("/video-sources/{type}/{id}/full-sync", post(full_sync_video_source))
         .route("/video-sources/favorites", post(insert_favorite))
         .route("/video-sources/collections", post(insert_collection))
@@ -204,7 +206,15 @@ pub async fn update_video_source(
     ValidatedJson(request): ValidatedJson<UpdateVideoSourceRequest>,
 ) -> Result<ApiResponse<UpdateVideoSourceResponse>, ApiError> {
     let rule_display = request.rule.as_ref().map(|rule| rule.to_string());
-    let filter_option = request.filter_option.map(serde_json::to_value).transpose()?;
+    let filter_option = request
+        .filter_option
+        .map(|mut option| {
+            if option.audio_only {
+                option.save_audio = false;
+            }
+            serde_json::to_value(option)
+        })
+        .transpose()?;
     let active_model = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: collection::ActiveModel = model.into();
@@ -311,6 +321,20 @@ pub async fn download_video_source(
 ) -> Result<ApiResponse<bool>, ApiError> {
     crate::task::DownloadTaskManager::get()
         .download_source_once(&source_type, id)
+        .await?;
+    Ok(ApiResponse::ok(true))
+}
+
+pub async fn pause_video_source(Path((source_type, id)): Path<(String, i32)>) -> Result<ApiResponse<bool>, ApiError> {
+    crate::task::DownloadTaskManager::get()
+        .pause_source(&source_type, id)
+        .await?;
+    Ok(ApiResponse::ok(true))
+}
+
+pub async fn resume_video_source(Path((source_type, id)): Path<(String, i32)>) -> Result<ApiResponse<bool>, ApiError> {
+    crate::task::DownloadTaskManager::get()
+        .resume_source(&source_type, id)
         .await?;
     Ok(ApiResponse::ok(true))
 }

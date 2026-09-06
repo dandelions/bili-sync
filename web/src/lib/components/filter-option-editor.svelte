@@ -12,14 +12,30 @@
 
 <div class="space-y-6">
 	<div class="flex items-center space-x-2">
-		<Switch id="audio-only" bind:checked={value.audio_only} {disabled} />
+		<Switch
+			id="audio-only"
+			bind:checked={value.audio_only}
+			onCheckedChange={(checked) => {
+				value.audio_only = checked;
+				if (checked) value.save_audio = false;
+			}}
+			{disabled}
+		/>
 		<Label for="audio-only">仅下载音频</Label>
 	</div>
 	<p class="text-muted-foreground text-sm">
 		开启后只保存 M4A 音频文件；没有独立音频流时，会下载混合流后由 ffmpeg 提取音频。
 	</p>
 	<div class="flex items-center space-x-2">
-		<Switch id="save-audio" bind:checked={value.save_audio} {disabled} />
+		<Switch
+			id="save-audio"
+			bind:checked={value.save_audio}
+			onCheckedChange={(checked) => {
+				value.save_audio = checked;
+				if (checked) value.audio_only = false;
+			}}
+			{disabled}
+		/>
 		<Label for="save-audio">同时保存视频和音频</Label>
 	</div>
 	<p class="text-muted-foreground text-sm">

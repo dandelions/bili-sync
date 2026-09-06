@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,6 +9,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use serde::Serialize;
 use tokio::sync::{OnceCell, watch};
 use tokio_cron_scheduler::{Job, JobScheduler};
+use tokio_util::sync::CancellationToken;
 
 use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::{self, BiliClient, BiliError};
@@ -30,12 +32,24 @@ pub struct DownloadTaskManager {
     shutdown_rx: watch::Receiver<Result<()>>,
 }
 
-#[derive(Serialize, Default, Clone, Copy, Debug)]
+#[derive(Serialize, Default, Clone, Debug)]
 pub struct TaskStatus {
-    is_running: bool,
-    last_run: Option<chrono::DateTime<chrono::Local>>,
-    last_finish: Option<chrono::DateTime<chrono::Local>>,
-    next_run: Option<chrono::DateTime<chrono::Local>>,
+    pub is_running: bool,
+    pub last_run: Option<chrono::DateTime<chrono::Local>>,
+    pub last_finish: Option<chrono::DateTime<chrono::Local>>,
+    pub next_run: Option<chrono::DateTime<chrono::Local>>,
+    pub source_type: Option<String>,
+    pub source_id: Option<i32>,
+    pub is_paused: bool,
+}
+
+#[derive(Clone)]
+struct SourceTask {
+    id: uuid::Uuid,
+    source_type: String,
+    source_id: i32,
+    cancel: CancellationToken,
+    paused: bool,
 }
 
 struct TaskContext {
@@ -45,6 +59,7 @@ struct TaskContext {
     status_tx: watch::Sender<TaskStatus>,
     status_rx: watch::Receiver<TaskStatus>,
     video_task_id: tokio::sync::Mutex<Option<uuid::Uuid>>, // 存储当前视频下载任务的 UUID
+    source_task: tokio::sync::Mutex<Option<SourceTask>>,
 }
 
 impl DownloadTaskManager {
@@ -104,6 +119,24 @@ impl DownloadTaskManager {
             _ => bail!("Invalid video source type"),
         }
         .context("video source not found")?;
+        let source_type = source_type.to_string();
+        let task_id = uuid::Uuid::new_v4();
+        let cancel = CancellationToken::new();
+        {
+            let mut current = self.cx.source_task.lock().await;
+            if let Some(existing) = current.as_ref()
+                && (!existing.paused || existing.source_type != source_type || existing.source_id != source_id)
+            {
+                bail!("已有视频源下载任务正在执行");
+            }
+            *current = Some(SourceTask {
+                id: task_id,
+                source_type: source_type.clone(),
+                source_id,
+                cancel: cancel.clone(),
+                paused: false,
+            });
+        }
         let cx = self.cx.clone();
         let _ = self
             .sched
@@ -114,15 +147,24 @@ impl DownloadTaskManager {
                 move |_uuid, _scheduler| {
                     let cx = cx.clone();
                     let source = source.clone();
+                    let cancel = cancel.clone();
+                    let source_type = source_type.clone();
+                    let task_id = task_id;
                     Box::pin(async move {
                         let _lock = cx.running.lock().await;
+                        if cancel.is_cancelled() {
+                            return;
+                        }
                         let started_at = chrono::Local::now();
-                        let previous_status = *cx.status_rx.borrow();
+                        let previous_status = cx.status_rx.borrow().clone();
                         let _ = cx.status_tx.send(TaskStatus {
                             is_running: true,
                             last_run: Some(started_at),
                             last_finish: None,
                             next_run: previous_status.next_run,
+                            source_type: Some(source_type.clone()),
+                            source_id: Some(source_id),
+                            is_paused: false,
                         });
                         let config = VersionedConfig::get().snapshot();
                         let template = TEMPLATE.snapshot();
@@ -136,7 +178,10 @@ impl DownloadTaskManager {
                                 .context("解析 mixin key 失败")?;
                             bilibili::set_global_mixin_key(mixin_key);
                             let bili_client = cx.bili_client.snapshot()?;
-                            process_video_source(source, &bili_client, &cx.connection, &template, &config).await
+                            tokio::select! {
+                                result = process_video_source(source, &bili_client, &cx.connection, &template, &config) => result,
+                                _ = cancel.cancelled() => Ok(()),
+                            }
                         }
                         .await;
                         if let Err(error) = result {
@@ -147,18 +192,65 @@ impl DownloadTaskManager {
                                 &error,
                             );
                         }
-                        let last_status = *cx.status_rx.borrow();
-                        let _ = cx.status_tx.send(TaskStatus {
-                            is_running: false,
-                            last_run: last_status.last_run,
-                            last_finish: Some(chrono::Local::now()),
-                            next_run: last_status.next_run,
-                        });
+                        let paused = cancel.is_cancelled();
+                        let mut current = cx.source_task.lock().await;
+                        let is_current = current.as_ref().is_some_and(|task| task.id == task_id);
+                        if is_current {
+                            let last_status = cx.status_rx.borrow().clone();
+                            let _ = cx.status_tx.send(TaskStatus {
+                                is_running: false,
+                                last_run: last_status.last_run,
+                                last_finish: Some(chrono::Local::now()),
+                                next_run: last_status.next_run,
+                                source_type: Some(source_type.clone()),
+                                source_id: Some(source_id),
+                                is_paused: paused,
+                            });
+                            if !paused {
+                                *current = None;
+                            }
+                        }
                     })
                 },
             )?)
             .await?;
         Ok(())
+    }
+
+    pub async fn pause_source(&self, source_type: &str, source_id: i32) -> Result<()> {
+        let mut current = self.cx.source_task.lock().await;
+        let Some(task) = current.as_mut() else {
+            bail!("该视频源没有活动下载任务");
+        };
+        if task.source_type != source_type || task.source_id != source_id || task.paused {
+            bail!("该视频源没有活动下载任务");
+        }
+        task.paused = true;
+        task.cancel.cancel();
+        let status = self.cx.status_rx.borrow().clone();
+        let _ = self.cx.status_tx.send(TaskStatus {
+            is_running: false,
+            last_run: status.last_run,
+            last_finish: status.last_finish,
+            next_run: status.next_run,
+            source_type: Some(source_type.to_string()),
+            source_id: Some(source_id),
+            is_paused: true,
+        });
+        Ok(())
+    }
+
+    pub async fn resume_source(&self, source_type: &str, source_id: i32) -> Result<()> {
+        {
+            let current = self.cx.source_task.lock().await;
+            let Some(task) = current.as_ref() else {
+                bail!("该视频源没有暂停的下载任务");
+            };
+            if task.source_type != source_type || task.source_id != source_id || !task.paused {
+                bail!("该视频源没有暂停的下载任务");
+            }
+        }
+        self.download_source_once(source_type, source_id).await
     }
 
     /// 启动任务调度器
@@ -185,6 +277,7 @@ impl DownloadTaskManager {
             status_tx,
             status_rx,
             video_task_id,
+            source_task: tokio::sync::Mutex::new(None),
         });
         // 读取初始配置
         let mut rx = VersionedConfig::get().subscribe();
@@ -331,7 +424,7 @@ impl DownloadTaskManager {
         move |_uuid, mut l| {
             let cx = cx.clone();
             Box::pin(async move {
-                let old_status = *cx.status_rx.borrow();
+                let old_status = cx.status_rx.borrow().clone();
                 let next_run = l
                     .next_tick_for_job(video_task_id)
                     .await
@@ -358,6 +451,7 @@ impl DownloadTaskManager {
                     last_run: Some(chrono::Local::now()),
                     last_finish: None,
                     next_run: None,
+                    ..Default::default()
                 });
                 info!("开始执行本轮视频下载任务..");
                 let mut config = VersionedConfig::get().snapshot();
@@ -380,12 +474,13 @@ impl DownloadTaskManager {
                     .ok()
                     .flatten()
                     .map(|dt| dt.with_timezone(&chrono::Local));
-                let last_status = *cx.status_rx.borrow();
+                let last_status = cx.status_rx.borrow().clone();
                 let _ = cx.status_tx.send(TaskStatus {
                     is_running: false,
                     last_run: last_status.last_run,
                     last_finish: Some(chrono::Local::now()),
                     next_run,
+                    ..Default::default()
                 });
             })
         }

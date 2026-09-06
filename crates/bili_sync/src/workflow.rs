@@ -216,12 +216,21 @@ pub async fn download_unprocessed_videos(
 ) -> Result<DownloadNotifyInfo> {
     video_source.log_download_video_start();
     let downloader = Downloader::new(bili_client.client.clone());
-    let source_filter_option = video_source
+    let mut filter_option = video_source
         .filter_option()
         .as_ref()
         .map(|value| serde_json::from_value(value.clone()))
-        .transpose()?;
-    let filter_option = source_filter_option.as_ref().unwrap_or(&config.filter_option);
+        .transpose()?
+        .unwrap_or_else(|| config.filter_option.clone());
+    if filter_option.audio_only {
+        filter_option.save_audio = false;
+    }
+    info!(
+        "视频源下载筛选配置：source={}, audio_only={}, save_audio={}",
+        video_source.display_name(),
+        filter_option.audio_only,
+        filter_option.save_audio
+    );
     let cx = DownloadContext::new(
         bili_client,
         video_source,
@@ -229,7 +238,7 @@ pub async fn download_unprocessed_videos(
         connection,
         &downloader,
         config,
-        filter_option,
+        &filter_option,
     );
     let unhandled_videos_pages = filter_unhandled_video_pages(video_source.filter_expr(), connection).await?;
     let mut assigned_upper_ids = HashSet::new();
@@ -665,7 +674,9 @@ pub async fn download_page(
         ),
         // 下载分页视频与可选的音频副本
         fetch_page_video(
-            separate_status[1] || saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists()),
+            separate_status[1]
+                || (audio_only && audio_path.as_deref().is_some_and(|path| !path.exists()))
+                || saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists()),
             video_model,
             &page_info,
             &video_path,
@@ -730,6 +741,13 @@ pub async fn download_page(
             && e.is_risk_control_related()
         {
             bail!(e);
+        }
+    }
+    if audio_only && video_path.exists() {
+        if let Err(error) = fs::remove_file(video_path.clone()).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            warn!("清理纯音频模式下的旧视频文件失败 {}: {}", video_path.display(), error);
         }
     }
     let mut page_active_model: page::ActiveModel = page_model.into();

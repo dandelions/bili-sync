@@ -12,6 +12,8 @@
 	import CircleCheckBigIcon from '@lucide/svelte/icons/circle-check-big';
 	import CircleXIcon from '@lucide/svelte/icons/circle-x';
 	import DownloadIcon from '@lucide/svelte/icons/download';
+	import PauseIcon from '@lucide/svelte/icons/pause';
+	import PlayIcon from '@lucide/svelte/icons/play';
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import HeartIcon from '@lucide/svelte/icons/heart';
@@ -80,6 +82,13 @@
 	let fullSyncDeleteLocal = false;
 	let fullSyncing = false;
 	let downloadingSourceId: string | null = null;
+	let sourceTaskStatus: { source_type: string | null; source_id: number | null; is_running: boolean; is_paused: boolean } = {
+		source_type: null,
+		source_id: null,
+		is_running: false,
+		is_paused: false
+	};
+	let sourceTaskActionId: string | null = null;
 
 	// 编辑表单数据
 	let editForm = {
@@ -167,6 +176,29 @@
 			toast.error('触发下载任务失败', { description: (error as ApiError).message });
 		} finally {
 			downloadingSourceId = null;
+		}
+	}
+
+	function isSourceTaskActive(type: string, source: VideoSourceDetail) {
+		return sourceTaskStatus.source_type === type && sourceTaskStatus.source_id === source.id && (sourceTaskStatus.is_running || sourceTaskStatus.is_paused);
+	}
+
+	async function toggleSourceTask(type: string, source: VideoSourceDetail) {
+		const key = `${type}:${source.id}`;
+		if (sourceTaskActionId) return;
+		sourceTaskActionId = key;
+		try {
+			if (sourceTaskStatus.is_paused && isSourceTaskActive(type, source)) {
+				await api.resumeVideoSource(type, source.id);
+				toast.success('已恢复下载', { description: `视频源「${source.name}」将继续下载` });
+			} else if (isSourceTaskActive(type, source)) {
+				await api.pauseVideoSource(type, source.id);
+				toast.success('已请求暂停', { description: '任务将在当前下载边界停止' });
+			}
+		} catch (error) {
+			toast.error('操作下载任务失败', { description: (error as ApiError).message });
+		} finally {
+			sourceTaskActionId = null;
 		}
 	}
 
@@ -362,6 +394,15 @@
 	onMount(() => {
 		setBreadcrumb([{ label: '视频源' }]);
 		loadVideoSources();
+		const unsubscribeTasks = api.subscribeToTasks((data) => {
+			sourceTaskStatus = {
+				source_type: data.source_type,
+				source_id: data.source_id,
+				is_running: data.is_running,
+				is_paused: data.is_paused
+			};
+		});
+		return unsubscribeTasks;
 	});
 </script>
 
@@ -511,7 +552,7 @@
 															size="sm"
 															variant="outline"
 															onclick={() => downloadVideoSource(key, source)}
-															disabled={downloadingSourceId === `${key}:${source.id}`}
+															disabled={downloadingSourceId === `${key}:${source.id}` || isSourceTaskActive(key, source)}
 															class="h-8 w-8 p-0"
 														>
 															<DownloadIcon class={downloadingSourceId === `${key}:${source.id}` ? 'h-3 w-3 animate-pulse' : 'h-3 w-3'} />
@@ -521,6 +562,28 @@
 														<p class="text-xs">下载此视频源</p>
 													</Tooltip.Content>
 												</Tooltip.Root>
+												{#if isSourceTaskActive(key, source)}
+													<Tooltip.Root disableHoverableContent={true}>
+														<Tooltip.Trigger>
+															<Button
+																size="sm"
+																variant="outline"
+																onclick={() => toggleSourceTask(key, source)}
+																disabled={sourceTaskActionId === `${key}:${source.id}`}
+																class="h-8 w-8 p-0"
+															>
+																{#if sourceTaskStatus.is_paused}
+																	<PlayIcon class="h-3 w-3" />
+																{:else}
+																	<PauseIcon class="h-3 w-3" />
+																{/if}
+															</Button>
+														</Tooltip.Trigger>
+														<Tooltip.Content>
+															<p class="text-xs">{sourceTaskStatus.is_paused ? '恢复下载' : '暂停下载'}</p>
+														</Tooltip.Content>
+													</Tooltip.Root>
+												{/if}
 												<Tooltip.Root disableHoverableContent={true}>
 													<Tooltip.Trigger>
 														<Button
