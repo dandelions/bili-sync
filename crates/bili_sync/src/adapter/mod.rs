@@ -1,5 +1,6 @@
 mod collection;
 mod favorite;
+mod normal_video;
 mod submission;
 mod watch_later;
 
@@ -19,11 +20,14 @@ use sea_orm::sea_query::SimpleExpr;
 #[rustfmt::skip]
 use bili_sync_entity::collection::Model as Collection;
 use bili_sync_entity::favorite::Model as Favorite;
+use bili_sync_entity::normal_video::Model as NormalVideo;
 use bili_sync_entity::rule::Rule;
 use bili_sync_entity::submission::Model as Submission;
 use bili_sync_entity::watch_later::Model as WatchLater;
 
 use crate::bilibili::{BiliClient, Credential, VideoInfo};
+
+pub use normal_video::{NormalVideoInput, parse_normal_video_input};
 
 #[enum_dispatch]
 #[derive(Clone)]
@@ -32,6 +36,7 @@ pub enum VideoSourceEnum {
     Collection,
     Submission,
     WatchLater,
+    NormalVideo,
 }
 
 #[enum_dispatch(VideoSourceEnum)]
@@ -133,6 +138,7 @@ pub enum _ActiveModel {
     Collection(bili_sync_entity::collection::ActiveModel),
     Submission(bili_sync_entity::submission::ActiveModel),
     WatchLater(bili_sync_entity::watch_later::ActiveModel),
+    NormalVideo(bili_sync_entity::normal_video::ActiveModel),
 }
 
 impl _ActiveModel {
@@ -154,6 +160,9 @@ impl _ActiveModel {
                 } else {
                     model.save(connection).await?;
                 }
+            }
+            _ActiveModel::NormalVideo(model) => {
+                model.save(connection).await?;
             }
         }
         Ok(())

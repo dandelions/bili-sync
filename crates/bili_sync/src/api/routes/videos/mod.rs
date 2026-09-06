@@ -77,6 +77,7 @@ pub async fn get_videos(
         (params.favorite, video::Column::FavoriteId),
         (params.submission, video::Column::SubmissionId),
         (params.watch_later, video::Column::WatchLaterId),
+        (params.normal_video, video::Column::NormalVideoId),
     ] {
         if let Some(id) = field {
             query = query.filter(column.eq(id));
@@ -213,6 +214,7 @@ pub async fn delete_videos(
     let mut collection_ids = HashSet::new();
     let mut submission_ids = HashSet::new();
     let mut watch_later_ids = HashSet::new();
+    let mut normal_video_ids = HashSet::new();
     let page_paths = videos
         .into_iter()
         .flat_map(|(video, pages)| {
@@ -227,6 +229,9 @@ pub async fn delete_videos(
             }
             if let Some(id) = video.watch_later_id {
                 watch_later_ids.insert(id);
+            }
+            if let Some(id) = video.normal_video_id {
+                normal_video_ids.insert(id);
             }
             pages
                 .into_iter()
@@ -243,7 +248,15 @@ pub async fn delete_videos(
         .exec(&txn)
         .await?;
     txn.commit().await?;
-    reset_source_latest_row_at(&db, &favorite_ids, &collection_ids, &submission_ids, &watch_later_ids).await?;
+    reset_source_latest_row_at(
+        &db,
+        &favorite_ids,
+        &collection_ids,
+        &submission_ids,
+        &watch_later_ids,
+        &normal_video_ids,
+    )
+    .await?;
 
     let mut warnings = Vec::new();
     for (id, path) in page_paths {
@@ -288,6 +301,7 @@ async fn reset_source_latest_row_at(
     collection_ids: &HashSet<i32>,
     submission_ids: &HashSet<i32>,
     watch_later_ids: &HashSet<i32>,
+    normal_video_ids: &HashSet<i32>,
 ) -> Result<()> {
     let reset_at = chrono::DateTime::UNIX_EPOCH.naive_utc();
     if !favorite_ids.is_empty() {
@@ -315,6 +329,13 @@ async fn reset_source_latest_row_at(
         watch_later::Entity::update_many()
             .col_expr(watch_later::Column::LatestRowAt, Expr::value(reset_at))
             .filter(watch_later::Column::Id.is_in(watch_later_ids.iter().copied()))
+            .exec(db)
+            .await?;
+    }
+    if !normal_video_ids.is_empty() {
+        normal_video::Entity::update_many()
+            .col_expr(normal_video::Column::LatestRowAt, Expr::value(reset_at))
+            .filter(normal_video::Column::Id.is_in(normal_video_ids.iter().copied()))
             .exec(db)
             .await?;
     }
@@ -428,6 +449,7 @@ pub async fn clear_and_reset_video_status(
             favorite_id: video_info.favorite_id,
             submission_id: video_info.submission_id,
             watch_later_id: video_info.watch_later_id,
+            normal_video_id: video_info.normal_video_id,
         },
     }))
 }
@@ -442,6 +464,7 @@ pub async fn reset_filtered_video_status(
         (request.favorite, video::Column::FavoriteId),
         (request.submission, video::Column::SubmissionId),
         (request.watch_later, video::Column::WatchLaterId),
+        (request.normal_video, video::Column::NormalVideoId),
     ] {
         if let Some(id) = field {
             query = query.filter(column.eq(id));
@@ -582,6 +605,7 @@ pub async fn update_filtered_video_status(
         (request.favorite, video::Column::FavoriteId),
         (request.submission, video::Column::SubmissionId),
         (request.watch_later, video::Column::WatchLaterId),
+        (request.normal_video, video::Column::NormalVideoId),
     ] {
         if let Some(id) = field {
             query = query.filter(column.eq(id));

@@ -27,6 +27,7 @@ pub struct VideosRequest {
     pub favorite: Option<i32>,
     pub submission: Option<i32>,
     pub watch_later: Option<i32>,
+    pub normal_video: Option<i32>,
     pub query: Option<String>,
     pub status_filter: Option<StatusFilter>,
     pub validation_filter: Option<ValidationFilter>,
@@ -48,6 +49,7 @@ pub struct ResetFilteredVideoStatusRequest {
     pub favorite: Option<i32>,
     pub submission: Option<i32>,
     pub watch_later: Option<i32>,
+    pub normal_video: Option<i32>,
     pub query: Option<String>,
     pub status_filter: Option<StatusFilter>,
     pub validation_filter: Option<ValidationFilter>,
@@ -88,6 +90,7 @@ pub struct UpdateFilteredVideoStatusRequest {
     pub favorite: Option<i32>,
     pub submission: Option<i32>,
     pub watch_later: Option<i32>,
+    pub normal_video: Option<i32>,
     pub query: Option<String>,
     pub status_filter: Option<StatusFilter>,
     pub validation_filter: Option<ValidationFilter>,
@@ -134,6 +137,14 @@ pub struct InsertCollectionRequest {
 #[derive(Deserialize, Validate)]
 pub struct InsertSubmissionRequest {
     pub upper_id: i64,
+    #[validate(custom(function = "crate::utils::validation::validate_path"))]
+    pub path: String,
+}
+
+#[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct InsertNormalVideoRequest {
+    pub video: String,
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
 }

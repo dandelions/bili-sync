@@ -30,6 +30,9 @@ use crate::bilibili::{BiliClient, Collection, CollectionItem, FavoriteList, Subm
 use crate::config::{PathSafeTemplate, TEMPLATE, VersionedConfig};
 use crate::utils::rule::FieldEvaluatable;
 
+mod normal_video_api;
+use normal_video_api::insert_normal_video;
+
 pub(super) fn router() -> Router {
     Router::new()
         .route("/video-sources", get(get_video_sources))
@@ -50,13 +53,14 @@ pub(super) fn router() -> Router {
         .route("/video-sources/favorites", post(insert_favorite))
         .route("/video-sources/collections", post(insert_collection))
         .route("/video-sources/submissions", post(insert_submission))
+        .route("/video-sources/normal_videos", post(insert_normal_video))
 }
 
 /// 列出所有视频来源
 pub async fn get_video_sources(
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<VideoSourcesResponse>, ApiError> {
-    let (collection, favorite, submission, mut watch_later) = tokio::try_join!(
+    let (collection, favorite, submission, mut watch_later, normal_videos) = tokio::try_join!(
         collection::Entity::find()
             .select_only()
             .columns([collection::Column::Id, collection::Column::Name])
@@ -78,6 +82,11 @@ pub async fn get_video_sources(
             .column(watch_later::Column::Id)
             .column_as(Expr::value("稍后再看"), "name")
             .into_model::<VideoSource>()
+            .all(&db),
+        normal_video::Entity::find()
+            .select_only()
+            .columns([normal_video::Column::Id, normal_video::Column::Name])
+            .into_model::<VideoSource>()
             .all(&db)
     )?;
     // watch_later 是一个特殊的视频来源，如果不存在则添加一个默认项
@@ -92,6 +101,7 @@ pub async fn get_video_sources(
         favorite,
         submission,
         watch_later,
+        normal_videos,
     }))
 }
 
@@ -99,7 +109,7 @@ pub async fn get_video_sources(
 pub async fn get_video_sources_details(
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<VideoSourcesDetailsResponse>, ApiError> {
-    let (mut collections, mut favorites, mut submissions, mut watch_later) = tokio::try_join!(
+    let (mut collections, mut favorites, mut submissions, mut watch_later, mut normal_videos) = tokio::try_join!(
         collection::Entity::find()
             .select_only()
             .columns([
@@ -152,6 +162,19 @@ pub async fn get_video_sources_details(
                 watch_later::Column::LatestRowAt
             ])
             .into_model::<VideoSourceDetail>()
+            .all(&db),
+        normal_video::Entity::find()
+            .select_only()
+            .columns([
+                normal_video::Column::Id,
+                normal_video::Column::Name,
+                normal_video::Column::Path,
+                normal_video::Column::Rule,
+                normal_video::Column::FilterOption,
+                normal_video::Column::Enabled,
+                normal_video::Column::LatestRowAt,
+            ])
+            .into_model::<VideoSourceDetail>()
             .all(&db)
     )?;
     if watch_later.is_empty() {
@@ -167,7 +190,13 @@ pub async fn get_video_sources_details(
             latest_row_at: None,
         })
     }
-    for sources in [&mut collections, &mut favorites, &mut submissions, &mut watch_later] {
+    for sources in [
+        &mut collections,
+        &mut favorites,
+        &mut submissions,
+        &mut watch_later,
+        &mut normal_videos,
+    ] {
         sources.iter_mut().for_each(|item| {
             if let Some(rule) = &item.rule {
                 item.rule_display = Some(rule.to_string());
@@ -180,6 +209,7 @@ pub async fn get_video_sources_details(
         favorites,
         submissions,
         watch_later,
+        normal_videos,
     }))
 }
 
@@ -191,6 +221,7 @@ pub async fn get_video_sources_default_path(
         "favorites" => "favorite_default_path",
         "collections" => "collection_default_path",
         "submissions" => "submission_default_path",
+        "normal_videos" | "normal_video" => "favorite_default_path",
         _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
     };
     let template = TEMPLATE.read();
@@ -234,14 +265,22 @@ pub async fn update_video_source(
         }),
         "submissions" => submission::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: submission::ActiveModel = model.into();
-            active_model.path = Set(request.path);
+            active_model.path = Set(request.path.clone());
             active_model.enabled = Set(request.enabled);
-            active_model.rule = Set(request.rule);
-            active_model.filter_option = Set(filter_option);
+            active_model.rule = Set(request.rule.clone());
+            active_model.filter_option = Set(filter_option.clone());
             if let Some(use_dynamic_api) = request.use_dynamic_api {
                 active_model.use_dynamic_api = Set(use_dynamic_api);
             }
             _ActiveModel::Submission(active_model)
+        }),
+        "normal_videos" | "normal_video" => normal_video::Entity::find_by_id(id).one(&db).await?.map(|model| {
+            let mut active_model: normal_video::ActiveModel = model.into();
+            active_model.path = Set(request.path.clone());
+            active_model.enabled = Set(request.enabled);
+            active_model.rule = Set(request.rule.clone());
+            active_model.filter_option = Set(filter_option.clone());
+            _ActiveModel::NormalVideo(active_model)
         }),
         "watch_later" => match watch_later::Entity::find_by_id(id).one(&db).await? {
             // 稍后再看需要做特殊处理，get 时如果稍后再看不存在返回的是 id 为 1 的假记录
@@ -288,6 +327,7 @@ pub async fn remove_video_source(
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "submissions" => submission::Entity::find_by_id(id).one(&db).await?.map(Into::into),
+        "normal_videos" | "normal_video" => normal_video::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
     };
     let Some(video_source) = video_source else {
@@ -375,6 +415,16 @@ pub async fn evaluate_video_source(
                 .and_then(|r| r),
             video::Column::SubmissionId.eq(id),
         ),
+        "normal_videos" | "normal_video" => (
+            normal_video::Entity::find_by_id(id)
+                .select_only()
+                .column(normal_video::Column::Rule)
+                .into_tuple::<Option<Rule>>()
+                .one(&db)
+                .await?
+                .and_then(|r| r),
+            video::Column::NormalVideoId.eq(id),
+        ),
         "watch_later" => (
             watch_later::Entity::find_by_id(id)
                 .select_only()
@@ -422,6 +472,7 @@ pub async fn full_sync_video_source(
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "submissions" => submission::Entity::find_by_id(id).one(&db).await?.map(Into::into),
+        "normal_videos" | "normal_video" => normal_video::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         "watch_later" => watch_later::Entity::find_by_id(id).one(&db).await?.map(Into::into),
         _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
     };

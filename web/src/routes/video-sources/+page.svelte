@@ -23,6 +23,7 @@
 	import SquarePenIcon from '@lucide/svelte/icons/square-pen';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import UserIcon from '@lucide/svelte/icons/user';
+	import VideoIcon from '@lucide/svelte/icons/video';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import { toast } from 'svelte-sonner';
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
@@ -41,12 +42,12 @@
 
 	let videoSourcesData: VideoSourcesDetailsResponse | null = null;
 	let loading = false;
-	let activeTab = 'favorites';
+	let activeTab = 'normal_videos';
 	let globalFilterOption: FilterOption | null = null;
 
 	// 添加对话框状态
 	let showAddDialog = false;
-	let addDialogType: 'favorites' | 'collections' | 'submissions' = 'favorites';
+	let addDialogType: 'favorites' | 'collections' | 'submissions' | 'normal_videos' = 'normal_videos';
 	let adding = false;
 
 	// 编辑对话框状态
@@ -102,11 +103,13 @@
 	let favoriteForm = { fid: '', path: '' };
 	let collectionForm = { sid: '', mid: '', collection_type: '2', path: '' }; // 默认为合集
 	let submissionForm = { upper_id: '', path: '' };
+	let normalVideoForm = { video: '', path: '' };
 
 	const TAB_CONFIG = {
 		favorites: { label: '收藏夹', icon: HeartIcon },
 		collections: { label: '合集 / 列表', icon: FolderIcon },
 		submissions: { label: '用户投稿', icon: UserIcon },
+		normal_videos: { label: '普通视频', icon: VideoIcon },
 		watch_later: { label: '稍后再看', icon: ClockIcon }
 	} as const;
 
@@ -330,12 +333,13 @@
 	}
 
 	// 打开添加对话框
-	function openAddDialog(type: 'favorites' | 'collections' | 'submissions') {
+	function openAddDialog(type: 'favorites' | 'collections' | 'submissions' | 'normal_videos') {
 		addDialogType = type;
 		// 重置表单
 		favoriteForm = { fid: '', path: '' };
 		collectionForm = { sid: '', mid: '', collection_type: '2', path: '' };
 		submissionForm = { upper_id: '', path: '' };
+		normalVideoForm = { video: '', path: '' };
 		showAddDialog = true;
 	}
 
@@ -375,6 +379,13 @@
 						upper_id: parseInt(submissionForm.upper_id),
 						path: submissionForm.path
 					});
+					break;
+				case 'normal_videos':
+					if (!normalVideoForm.video.trim() || !normalVideoForm.path.trim()) {
+						toast.error('请填写完整的普通视频信息');
+						return;
+					}
+					await api.insertNormalVideo(normalVideoForm);
 					break;
 			}
 
@@ -417,7 +428,7 @@
 		</div>
 	{:else if videoSourcesData}
 		<Tabs.Root bind:value={activeTab} class="w-full">
-			<Tabs.List class="grid w-full grid-cols-4">
+			<Tabs.List class="grid w-full grid-cols-5">
 				{#each Object.entries(TAB_CONFIG) as [key, config] (key)}
 					<Tabs.Trigger value={key} class="relative">
 						{config.label}
@@ -429,7 +440,7 @@
 				<Tabs.Content value={key} class="mt-6">
 					<div class="mb-4 flex items-center justify-between">
 						<div></div>
-						{#if key === 'favorites' || key === 'collections' || key === 'submissions'}
+						{#if key === 'favorites' || key === 'collections' || key === 'submissions' || key === 'normal_videos'}
 							<Button size="sm" onclick={() => openAddDialog(key)} class="flex items-center gap-2">
 								<PlusIcon class="h-4 w-4" />
 								手动添加
@@ -633,11 +644,13 @@
 									还没有添加任何合集或列表订阅
 								{:else if key === 'submissions'}
 									还没有添加任何用户投稿订阅
+								{:else if key === 'normal_videos'}
+									还没有添加任何普通视频
 								{:else}
 									还没有添加稍后再看订阅
 								{/if}
 							</p>
-							{#if key === 'favorites' || key === 'collections' || key === 'submissions'}
+							{#if key === 'favorites' || key === 'collections' || key === 'submissions' || key === 'normal_videos'}
 								<Button onclick={() => openAddDialog(key)} class="flex items-center gap-2">
 									<PlusIcon class="h-4 w-4" />
 									手动添加
@@ -832,8 +845,10 @@
 					添加收藏夹
 				{:else if addDialogType === 'collections'}
 					添加合集
-				{:else}
+				{:else if addDialogType === 'submissions'}
 					添加用户投稿
+				{:else}
+					添加普通视频
 				{/if}
 			</Dialog.Title>
 			<div class="mt-4">
@@ -893,17 +908,18 @@
 						</div>
 						<p class="text-muted-foreground text-xs">可从合集/列表页面URL中获取相应ID</p>
 					</div>
-				{:else}
+				{:else if addDialogType === 'submissions'}
 					<div class="space-y-4">
 						<div>
 							<Label for="upper_id" class="text-sm font-medium">UP主ID (mid)</Label>
-							<Input
-								id="upper_id"
-								type="number"
-								bind:value={submissionForm.upper_id}
-								placeholder="请输入UP主ID"
-								class="mt-1"
-							/>
+							<Input id="upper_id" type="number" bind:value={submissionForm.upper_id} placeholder="请输入UP主ID" class="mt-1" />
+						</div>
+					</div>
+				{:else}
+					<div class="space-y-4">
+						<div>
+							<Label for="normal-video" class="text-sm font-medium">视频 BV / av / URL</Label>
+							<Input id="normal-video" type="text" bind:value={normalVideoForm.video} placeholder="BV...、av123 或 bilibili.com/video/BV..." class="mt-1" />
 						</div>
 					</div>
 				{/if}
@@ -925,14 +941,10 @@
 							placeholder="请输入下载路径，例如：/path/to/download"
 							class="mt-1"
 						/>
+					{:else if addDialogType === 'submissions'}
+						<Input id="path" type="text" bind:value={submissionForm.path} placeholder="请输入下载路径，例如：/path/to/download" class="mt-1" />
 					{:else}
-						<Input
-							id="path"
-							type="text"
-							bind:value={submissionForm.path}
-							placeholder="请输入下载路径，例如：/path/to/download"
-							class="mt-1"
-						/>
+						<Input id="path" type="text" bind:value={normalVideoForm.path} placeholder="请输入下载路径，例如：/path/to/download" class="mt-1" />
 					{/if}
 				</div>
 			</div>

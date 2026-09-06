@@ -46,6 +46,15 @@ impl<'a> Video<'a> {
 
     /// 直接调用视频信息接口获取详细的视频信息，视频信息中包含了视频的分页信息
     pub async fn get_view_info(&self) -> Result<VideoInfo> {
+        self.get_view_info_with_query("bvid", self.bvid).await
+    }
+
+    /// 使用 aid 查询视频详情，返回结果中的 bvid 可用于后续请求。
+    pub async fn get_view_info_by_aid(&self, aid: i64) -> Result<VideoInfo> {
+        self.get_view_info_with_query("aid", &aid.to_string()).await
+    }
+
+    async fn get_view_info_with_query(&self, key: &str, value: &str) -> Result<VideoInfo> {
         let mut res = self
             .client
             .request(
@@ -54,7 +63,7 @@ impl<'a> Video<'a> {
                 self.credential,
             )
             .await
-            .query(&[("bvid", &self.bvid)])
+            .query(&[(key, value)])
             .wbi_sign(MIXIN_KEY.load().as_deref())?
             .send()
             .await?

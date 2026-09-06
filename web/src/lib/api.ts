@@ -13,6 +13,7 @@ import type {
 	QrcodeGenerateResponse as GenerateQrcodeResponse,
 	InsertCollectionRequest,
 	InsertFavoriteRequest,
+	InsertNormalVideoRequest,
 	InsertSubmissionRequest,
 	Notifier,
 	QrcodePollResponse as PollQrcodeResponse,
@@ -245,6 +246,10 @@ class ApiClient {
 		return this.post<boolean>('/video-sources/submissions', request);
 	}
 
+	async insertNormalVideo(request: InsertNormalVideoRequest): Promise<ApiResponse<boolean>> {
+		return this.post<boolean>('/video-sources/normal_videos', request);
+	}
+
 	async getVideoSourcesDetails(): Promise<ApiResponse<VideoSourcesDetailsResponse>> {
 		return this.get<VideoSourcesDetailsResponse>('/video-sources/details');
 	}
@@ -355,6 +360,7 @@ const api = {
 	insertFavorite: (request: InsertFavoriteRequest) => apiClient.insertFavorite(request),
 	insertCollection: (request: InsertCollectionRequest) => apiClient.insertCollection(request),
 	insertSubmission: (request: InsertSubmissionRequest) => apiClient.insertSubmission(request),
+	insertNormalVideo: (request: InsertNormalVideoRequest) => apiClient.insertNormalVideo(request),
 	getVideoSourcesDetails: () => apiClient.getVideoSourcesDetails(),
 	updateVideoSource: (type: string, id: number, request: UpdateVideoSourceRequest) =>
 		apiClient.updateVideoSource(type, id, request),

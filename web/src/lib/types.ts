@@ -8,6 +8,7 @@ export interface VideosRequest {
 	favorite?: number;
 	submission?: number;
 	watch_later?: number;
+	normal_video?: number;
 	query?: string;
 	status_filter?: 'failed' | 'succeeded' | 'waiting';
 	validation_filter?: 'skipped' | 'invalid' | 'normal';
@@ -27,6 +28,7 @@ export interface VideoSourcesResponse {
 	favorite: VideoSource[];
 	submission: VideoSource[];
 	watch_later: VideoSource[];
+	normal_videos: VideoSource[];
 }
 
 export interface VideoInfo {
@@ -41,6 +43,7 @@ export interface VideoInfo {
 	favorite_id?: number;
 	submission_id?: number;
 	watch_later_id?: number;
+	normal_video_id?: number;
 }
 
 export interface VideosResponse {
@@ -133,6 +136,7 @@ export interface UpdateFilteredVideoStatusRequest {
 	favorite?: number;
 	submission?: number;
 	watch_later?: number;
+	normal_video?: number;
 	query?: string;
 	status_filter?: 'failed' | 'succeeded' | 'waiting';
 	validation_filter?: 'skipped' | 'invalid' | 'normal';
@@ -151,6 +155,7 @@ export interface ResetFilteredVideoStatusRequest {
 	favorite?: number;
 	submission?: number;
 	watch_later?: number;
+	normal_video?: number;
 	query?: string;
 	status_filter?: 'failed' | 'succeeded' | 'waiting';
 	validation_filter?: 'skipped' | 'invalid' | 'normal';
@@ -219,6 +224,11 @@ export interface InsertSubmissionRequest {
 	path: string;
 }
 
+export interface InsertNormalVideoRequest {
+	video: string;
+	path: string;
+}
+
 export interface Condition<T> {
 	operator: string;
 	value: T | T[];
@@ -249,6 +259,7 @@ export interface VideoSourcesDetailsResponse {
 	favorites: VideoSourceDetail[];
 	submissions: VideoSourceDetail[];
 	watch_later: VideoSourceDetail[];
+	normal_videos: VideoSourceDetail[];
 }
 
 export interface UpdateVideoSourceRequest {

@@ -5,6 +5,7 @@ pub mod prelude;
 pub mod collection;
 pub mod config;
 pub mod favorite;
+pub mod normal_video;
 pub mod page;
 pub mod submission;
 pub mod video;

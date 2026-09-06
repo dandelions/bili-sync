@@ -116,6 +116,10 @@ impl DownloadTaskManager {
                 .one(&self.cx.connection)
                 .await?
                 .map(VideoSourceEnum::from),
+            "normal_videos" | "normal_video" => normal_video::Entity::find_by_id(source_id)
+                .one(&self.cx.connection)
+                .await?
+                .map(VideoSourceEnum::from),
             _ => bail!("Invalid video source type"),
         }
         .context("video source not found")?;

@@ -13,6 +13,7 @@ pub struct VideoSourcesResponse {
     pub favorite: Vec<VideoSource>,
     pub submission: Vec<VideoSource>,
     pub watch_later: Vec<VideoSource>,
+    pub normal_videos: Vec<VideoSource>,
 }
 
 #[derive(Serialize)]
@@ -94,6 +95,7 @@ pub struct VideoInfo {
     pub favorite_id: Option<i32>,
     pub submission_id: Option<i32>,
     pub watch_later_id: Option<i32>,
+    pub normal_video_id: Option<i32>,
 }
 
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]
@@ -190,6 +192,7 @@ pub struct VideoSourcesDetailsResponse {
     pub favorites: Vec<VideoSourceDetail>,
     pub submissions: Vec<VideoSourceDetail>,
     pub watch_later: Vec<VideoSourceDetail>,
+    pub normal_videos: Vec<VideoSourceDetail>,
 }
 
 #[derive(Serialize, FromQueryResult)]
