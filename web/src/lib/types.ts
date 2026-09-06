@@ -60,6 +60,11 @@ export interface VideoResponse {
 	pages: PageInfo[];
 }
 
+export interface DeleteVideosResponse {
+	deleted_count: number;
+	warnings: string[];
+}
+
 export interface ResetVideoResponse {
 	resetted: boolean;
 	video: VideoInfo;

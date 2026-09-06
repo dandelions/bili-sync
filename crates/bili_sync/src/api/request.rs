@@ -149,6 +149,11 @@ pub struct UpdateVideoSourceRequest {
     pub use_dynamic_api: Option<bool>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DeleteVideosRequest {
+    pub ids: Vec<i32>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct DefaultPathRequest {
     pub name: String,

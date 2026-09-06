@@ -41,6 +41,12 @@ pub struct ClearAndResetVideoStatusResponse {
 }
 
 #[derive(Serialize)]
+pub struct DeleteVideosResponse {
+    pub deleted_count: usize,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize)]
 pub struct ResetFilteredVideosResponse {
     pub resetted: bool,
     pub resetted_videos_count: usize,

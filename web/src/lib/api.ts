@@ -4,6 +4,7 @@ import type {
 	ClearAndResetVideoResponse,
 	CollectionsResponse,
 	Config,
+	DeleteVideosResponse,
 	DashBoardResponse,
 	FavoritesResponse,
 	FullSyncVideoSourceRequest,
@@ -161,6 +162,10 @@ class ApiClient {
 		return this.get<VideosResponse>('/videos', params as Record<string, unknown>);
 	}
 
+	async deleteVideos(ids: number[]): Promise<ApiResponse<DeleteVideosResponse>> {
+		return this.request<DeleteVideosResponse>('/videos', 'DELETE', { ids });
+	}
+
 	async getVideo(id: number): Promise<ApiResponse<VideoResponse>> {
 		return this.get<VideoResponse>(`/videos/${id}`);
 	}
@@ -313,6 +318,7 @@ export const apiClient = new ApiClient();
 const api = {
 	getVideoSources: () => apiClient.getVideoSources(),
 	getVideos: (params?: VideosRequest) => apiClient.getVideos(params),
+	deleteVideos: (ids: number[]) => apiClient.deleteVideos(ids),
 	getVideo: (id: number) => apiClient.getVideo(id),
 	resetVideoStatus: (id: number, request: ResetVideoStatusRequest) =>
 		apiClient.resetVideoStatus(id, request),

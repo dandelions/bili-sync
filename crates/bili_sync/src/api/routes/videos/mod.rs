@@ -16,20 +16,20 @@ use sea_orm::{
 use crate::api::error::InnerApiError;
 use crate::api::helper::{update_page_download_status, update_video_download_status};
 use crate::api::request::{
-    ResetFilteredVideoStatusRequest, ResetVideoStatusRequest, UpdateFilteredVideoStatusRequest,
+    DeleteVideosRequest, ResetFilteredVideoStatusRequest, ResetVideoStatusRequest, UpdateFilteredVideoStatusRequest,
     UpdateVideoStatusRequest, VideosRequest,
 };
 use crate::api::response::{
-    ClearAndResetVideoStatusResponse, PageInfo, ResetFilteredVideosResponse, ResetVideoResponse, SimplePageInfo,
-    SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse,
-    VideosResponse,
+    ClearAndResetVideoStatusResponse, DeleteVideosResponse, PageInfo, ResetFilteredVideosResponse, ResetVideoResponse,
+    SimplePageInfo, SimpleVideoInfo, UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo,
+    VideoResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::utils::status::{PageStatus, VideoStatus};
 
 pub(super) fn router() -> Router {
     Router::new()
-        .route("/videos", get(get_videos))
+        .route("/videos", get(get_videos).delete(delete_videos))
         .route("/videos/{id}", get(get_video))
         .route(
             "/videos/{id}/clear-and-reset-status",
@@ -126,6 +126,47 @@ pub async fn get_video(
     Ok(ApiResponse::ok(VideoResponse {
         video: video_info,
         pages: pages_info,
+    }))
+}
+
+pub async fn delete_videos(
+    Extension(db): Extension<DatabaseConnection>,
+    Json(request): Json<DeleteVideosRequest>,
+) -> Result<ApiResponse<DeleteVideosResponse>, ApiError> {
+    let ids: HashSet<i32> = request.ids.into_iter().collect();
+    if ids.is_empty() {
+        return Err(InnerApiError::BadRequest("至少选择一个视频".to_string()).into());
+    }
+    let videos = video::Entity::find()
+        .filter(video::Column::Id.is_in(ids.iter().copied()))
+        .all(&db)
+        .await?;
+    let deleted_count = videos.len();
+    let paths = videos
+        .into_iter()
+        .filter(|video| !video.path.is_empty())
+        .map(|video| (video.id, video.path))
+        .collect::<Vec<_>>();
+    let txn = db.begin().await?;
+    page::Entity::delete_many()
+        .filter(page::Column::VideoId.is_in(ids.iter().copied()))
+        .exec(&txn)
+        .await?;
+    video::Entity::delete_many()
+        .filter(video::Column::Id.is_in(ids.iter().copied()))
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
+
+    let mut warnings = Vec::new();
+    for (id, path) in paths {
+        if let Err(error) = tokio::fs::remove_dir_all(&path).await {
+            warnings.push(format!("视频 {} 的本地路径「{}」删除失败：{:#}", id, path, error));
+        }
+    }
+    Ok(ApiResponse::ok(DeleteVideosResponse {
+        deleted_count,
+        warnings,
     }))
 }
 

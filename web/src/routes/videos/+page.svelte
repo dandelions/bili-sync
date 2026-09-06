@@ -5,6 +5,10 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SquarePenIcon from '@lucide/svelte/icons/square-pen';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import Grid2X2Icon from '@lucide/svelte/icons/grid-2x2';
+	import ListIcon from '@lucide/svelte/icons/list';
+	import InfoIcon from '@lucide/svelte/icons/info';
 	import api from '$lib/api';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -49,6 +53,10 @@
 
 	let videosData: VideosResponse | null = null;
 	let loading = false;
+	let viewMode: 'card' | 'list' = 'card';
+	let selectedVideoIds = new Set<number>();
+	let deleteDialogOpen = false;
+	let deleting = false;
 
 	let lastSearch: string | null = null;
 
@@ -142,6 +150,60 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	$: selectedCount = selectedVideoIds.size;
+	$: allVideosSelected = !!videosData?.videos.length && videosData.videos.every((video) => selectedVideoIds.has(video.id));
+	$: someVideosSelected = selectedCount > 0 && !allVideosSelected;
+
+	function toggleVideoSelection(id: number) {
+		const next = new Set(selectedVideoIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selectedVideoIds = next;
+	}
+
+	function toggleAllVideos() {
+		if (!videosData) return;
+		const next = new Set(selectedVideoIds);
+		if (allVideosSelected) {
+			for (const video of videosData.videos) next.delete(video.id);
+		} else {
+			for (const video of videosData.videos) next.add(video.id);
+		}
+		selectedVideoIds = next;
+	}
+
+	async function handleDeleteVideos() {
+		if (!selectedVideoIds.size) return;
+		deleting = true;
+		try {
+			const result = await api.deleteVideos([...selectedVideoIds]);
+			const data = result.data;
+			selectedVideoIds = new Set();
+			deleteDialogOpen = false;
+			if (data.warnings.length) {
+				toast.warning(`已删除 ${data.deleted_count} 个视频，但有文件删除失败`, {
+					description: data.warnings.join('；')
+				});
+			} else {
+				toast.success(`已删除 ${data.deleted_count} 个视频及其本地文件`);
+			}
+			await reloadVideos();
+		} catch (error) {
+			console.error('删除视频失败：', error);
+			toast.error('删除视频失败', { description: (error as ApiError).message });
+		} finally {
+			deleting = false;
+		}
+	}
+
+	function getOverallStatus(video: VideoInfo): { text: string; className: string } {
+		if (!video.valid) return { text: '失效', className: 'text-muted-foreground' };
+		if (!video.should_download) return { text: '跳过', className: 'text-muted-foreground' };
+		if (video.download_status.every((status) => status === 7)) return { text: '完成', className: 'text-emerald-600' };
+		if (video.download_status.some((status) => status > 0 && status < 7)) return { text: '失败', className: 'text-destructive' };
+		return { text: '等待', className: 'text-amber-600' };
 	}
 
 	async function reloadVideos() {
@@ -485,34 +547,62 @@
 </div>
 
 {#if videosData}
-	<div class="mb-6 flex items-center justify-between">
+	<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
 		<div class="flex items-center gap-6">
-			<div class=" text-sm font-medium">
-				共 {videosData.total_count} 个视频
-			</div>
-			<div class=" text-sm font-medium">
-				当前第 {$appStateStore.currentPage + 1} / {totalPages} 页
-			</div>
+			<div class="text-sm font-medium">共 {videosData.total_count} 个视频</div>
+			<div class="text-sm font-medium">当前第 {$appStateStore.currentPage + 1} / {totalPages} 页</div>
 		</div>
-		<div class="flex items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2">
+			{#if selectedCount > 0}
+				<Button
+					size="sm"
+					variant="destructive"
+					class="h-8 cursor-pointer text-xs font-medium"
+					onclick={() => (deleteDialogOpen = true)}
+					disabled={deleting || loading}
+				>
+					<Trash2Icon class="h-3.5 w-3.5" />
+					删除 {selectedCount} 个
+				</Button>
+			{/if}
 			<Button
 				size="sm"
 				variant="outline"
-				class="hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer text-xs font-medium"
+				class="h-8 cursor-pointer px-2"
+				onclick={() => (viewMode = 'card')}
+				aria-label="卡片视图"
+				aria-pressed={viewMode === 'card'}
+			>
+				<Grid2X2Icon class="h-3.5 w-3.5" />
+			</Button>
+			<Button
+				size="sm"
+				variant="outline"
+				class="h-8 cursor-pointer px-2"
+				onclick={() => (viewMode = 'list')}
+				aria-label="列表视图"
+				aria-pressed={viewMode === 'list'}
+			>
+				<ListIcon class="h-3.5 w-3.5" />
+			</Button>
+			<Button
+				size="sm"
+				variant="outline"
+				class="h-8 cursor-pointer text-xs font-medium"
 				onclick={() => (updateAllDialogOpen = true)}
 				disabled={updatingAll || loading}
 			>
-				<SquarePenIcon class="mr-1.5 h-3 w-3" />
+				<SquarePenIcon class="h-3 w-3" />
 				{hasFilters ? '编辑筛选' : '编辑全部'}
 			</Button>
 			<Button
 				size="sm"
 				variant="outline"
-				class="hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer text-xs font-medium"
+				class="h-8 cursor-pointer text-xs font-medium"
 				onclick={() => (resetAllDialogOpen = true)}
 				disabled={resettingAll || loading}
 			>
-				<RotateCcwIcon class="mr-1.5 h-3 w-3 {resettingAll ? 'animate-spin' : ''}" />
+				<RotateCcwIcon class="h-3 w-3 {resettingAll ? 'animate-spin' : ''}" />
 				{hasFilters ? '重置筛选' : '重置全部'}
 			</Button>
 		</div>
@@ -524,29 +614,81 @@
 		<div class="text-muted-foreground/70 text-sm">加载中...</div>
 	</div>
 {:else if videosData?.videos.length}
-	<div
-		class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-	>
-		{#each videosData.videos as video (video.id)}
-			<VideoCard
-				{video}
-				source={getVideoSource(video)}
-				onReset={async (forceReset: boolean) => {
-					await handleResetVideo(video.id, forceReset);
-				}}
-				onClearAndReset={async () => {
-					await handleClearAndResetVideo(video.id);
-				}}
-			/>
-		{/each}
+	<div class="mb-4 flex items-center gap-3 border-b pb-3">
+		<Checkbox
+			checked={allVideosSelected}
+			indeterminate={someVideosSelected}
+			onclick={toggleAllVideos}
+			aria-label="选择当前页视频"
+		/>
+		<span class="text-muted-foreground text-sm">
+			{selectedCount > 0 ? `已选择 ${selectedCount} 个` : '选择当前页视频'}
+		</span>
 	</div>
+	{#if viewMode === 'card'}
+		<div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+			{#each videosData.videos as video (video.id)}
+				<div class="relative min-w-0">
+					<div class="absolute top-3 left-3 z-10 rounded bg-background/90 p-1 shadow-sm">
+						<Checkbox
+							checked={selectedVideoIds.has(video.id)}
+							onclick={() => toggleVideoSelection(video.id)}
+							aria-label={`选择 ${video.name}`}
+						/>
+					</div>
+					<VideoCard
+						{video}
+						source={getVideoSource(video)}
+						onReset={async (forceReset: boolean) => await handleResetVideo(video.id, forceReset)}
+						onClearAndReset={async () => await handleClearAndResetVideo(video.id)}
+					/>
+				</div>
+			{/each}
+		</div>
+	{:else}
+		<div class="mb-8 overflow-x-auto rounded-md border">
+			<table class="w-full text-sm">
+				<thead class="bg-muted/50 text-left">
+					<tr>
+						<th class="w-12 px-3 py-3"></th>
+						<th class="px-3 py-3 font-medium">视频</th>
+						<th class="px-3 py-3 font-medium">UP主</th>
+						<th class="px-3 py-3 font-medium">来源</th>
+						<th class="px-3 py-3 font-medium">状态</th>
+						<th class="w-24 px-3 py-3"></th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each videosData.videos as video (video.id)}
+						{@const status = getOverallStatus(video)}
+						<tr class="hover:bg-muted/30 border-t">
+							<td class="px-3 py-3">
+								<Checkbox
+									checked={selectedVideoIds.has(video.id)}
+									onclick={() => toggleVideoSelection(video.id)}
+									aria-label={`选择 ${video.name}`}
+								/>
+							</td>
+							<td class="max-w-[28rem] px-3 py-3">
+								<a class="font-medium hover:underline" href={`/video/${video.id}`}>{video.name}</a>
+								<div class="text-muted-foreground mt-1 text-xs">{video.bvid}</div>
+							</td>
+							<td class="text-muted-foreground px-3 py-3">{video.upper_name}</td>
+							<td class="px-3 py-3">{getVideoSource(video)?.name || '未知'}</td>
+							<td class={`px-3 py-3 font-medium ${status.className}`}>{status.text}</td>
+							<td class="px-3 py-3 text-right">
+								<Button size="sm" variant="ghost" onclick={() => goto(`/video/${video.id}`)} aria-label="查看详情">
+									<InfoIcon class="h-4 w-4" />
+								</Button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
 
-	<!-- 翻页组件 -->
-	<Pagination
-		currentPage={$appStateStore.currentPage}
-		{totalPages}
-		onPageChange={handlePageChange}
-	/>
+	<Pagination currentPage={$appStateStore.currentPage} {totalPages} onPageChange={handlePageChange} />
 {:else}
 	<div class="flex items-center justify-center py-16">
 		<div class="space-y-3 text-center">
@@ -610,6 +752,28 @@
 				{:else}
 					{forceReset ? '确认强制重置' : '确认重置'}
 				{/if}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root bind:open={deleteDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>删除选中的视频</AlertDialog.Title>
+			<AlertDialog.Description>
+				确定删除选中的 {selectedCount} 个视频吗？这会删除视频记录、分页记录及对应的本地文件，且无法撤销。
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel disabled={deleting}>取消</AlertDialog.Cancel>
+			<AlertDialog.Action
+				onclick={handleDeleteVideos}
+				disabled={deleting}
+				class="bg-destructive hover:bg-destructive/90"
+			>
+				{#if deleting}<Trash2Icon class="h-4 w-4 animate-pulse" />{/if}
+				{deleting ? '删除中...' : '确认删除'}
 			</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
