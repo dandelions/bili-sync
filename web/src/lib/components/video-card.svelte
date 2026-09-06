@@ -15,6 +15,7 @@
 	import InfoIcon from '@lucide/svelte/icons/info';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 	import SquareArrowOutUpRightIcon from '@lucide/svelte/icons/square-arrow-out-up-right';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import { goto } from '$app/navigation';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
@@ -30,11 +31,14 @@
 	export let showProgress: boolean = true; // 是否显示进度信息
 	export let onReset: ((forceReset: boolean) => Promise<void>) | null = null; // 自定义重置函数
 	export let onClearAndReset: (() => Promise<void>) | null = null; // 自定义清空重置函数
+	export let onRemove: (() => Promise<void>) | null = null; // 自定义删除函数
 	export let resetDialogOpen = false; // 导出对话框状态，让父组件可以控制
 	export let clearAndResetDialogOpen = false; // 导出清空重置对话框状态
 	export let resetting = false;
 	export let clearAndResetting = false;
 
+	let removeDialogOpen = false;
+	let removing = false;
 	let forceReset = false;
 
 	function getStatusText(status: number): string {
@@ -118,6 +122,15 @@
 		}
 		clearAndResetting = false;
 		clearAndResetDialogOpen = false;
+	}
+
+	async function handleRemove() {
+		removing = true;
+		if (onRemove) {
+			await onRemove();
+		}
+		removing = false;
+		removeDialogOpen = false;
 	}
 
 	function handleViewDetail() {
@@ -255,6 +268,15 @@
 								<SquareArrowOutUpRightIcon class="mr-2 h-4 w-4" />
 								在 B 站打开
 							</DropdownMenu.Item>
+							{#if onRemove}
+								<DropdownMenu.Item
+									class="text-destructive focus:text-destructive cursor-pointer"
+									onclick={() => (removeDialogOpen = true)}
+								>
+									<Trash2Icon class="mr-2 h-4 w-4" />
+									删除视频
+								</DropdownMenu.Item>
+							{/if}
 						</DropdownMenu.Content>
 					</DropdownMenu.Root>
 				</div>
@@ -308,6 +330,29 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<!-- 删除确认对话框 -->
+<AlertDialog.Root bind:open={removeDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>删除视频</AlertDialog.Title>
+			<AlertDialog.Description>
+				确定删除视频 <strong>"{displayTitle}"</strong> 吗？这会删除视频记录、分页记录及对应的本地文件，且无法撤销。
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel disabled={removing}>取消</AlertDialog.Cancel>
+			<AlertDialog.Action
+				onclick={handleRemove}
+				disabled={removing}
+				class="bg-destructive hover:bg-destructive/90"
+			>
+				{#if removing}<Trash2Icon class="h-4 w-4 animate-pulse" />{/if}
+				{removing ? '删除中...' : '确认删除'}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 
 <!-- 清空重置确认对话框 -->
 <AlertDialog.Root bind:open={clearAndResetDialogOpen}>

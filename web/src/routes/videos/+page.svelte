@@ -641,6 +641,20 @@
 						source={getVideoSource(video)}
 						onReset={async (forceReset: boolean) => await handleResetVideo(video.id, forceReset)}
 						onClearAndReset={async () => await handleClearAndResetVideo(video.id)}
+						onRemove={async () => {
+							const result = await api.deleteVideos([video.id]);
+							const data = result.data;
+							if (data.warnings.length) {
+								toast.warning('视频记录已删除，但本地文件删除失败', {
+									description: data.warnings.join('；')
+								});
+							} else {
+								toast.success(`视频「${video.name}」已删除`);
+							}
+							selectedVideoIds.delete(video.id);
+							selectedVideoIds = new Set(selectedVideoIds);
+							await reloadVideos();
+						}}
 					/>
 				</div>
 			{/each}
