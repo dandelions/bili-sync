@@ -648,6 +648,7 @@ pub async fn download_page(
         video_path.clone()
     };
     let saved_audio_path = audio_path.as_deref().filter(|_| save_audio);
+    let download_audio_path = audio_path.as_deref().filter(|_| audio_only || save_audio);
     let dimension = match (page_model.width, page_model.height) {
         (Some(width), Some(height)) => Some(Dimension {
             width,
@@ -676,11 +677,11 @@ pub async fn download_page(
         fetch_page_video(
             separate_status[1]
                 || (audio_only && audio_path.as_deref().is_some_and(|path| !path.exists()))
-                || saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists()),
+                || (save_audio && saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists())),
             video_model,
             &page_info,
             &video_path,
-            saved_audio_path,
+            download_audio_path,
             cx,
         ),
         // 生成分页视频信息的 nfo
