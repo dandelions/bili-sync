@@ -800,20 +800,20 @@ pub async fn fetch_page_video(
                 .await?
         }
         BestStream::Mixed(mix_stream) => {
-            if let Some(audio_path) = audio_path {
+            if cx.filter_option.audio_only && !cx.filter_option.save_audio {
+                cx.downloader
+                    .multi_fetch_audio(
+                        &mix_stream.urls(cx.config.cdn_sorting),
+                        audio_path.unwrap_or(video_path),
+                        &cx.config.concurrent_limit.download,
+                    )
+                    .await?
+            } else if let Some(audio_path) = audio_path {
                 cx.downloader
                     .multi_fetch_mixed_with_audio(
                         &mix_stream.urls(cx.config.cdn_sorting),
                         video_path,
                         audio_path,
-                        &cx.config.concurrent_limit.download,
-                    )
-                    .await?
-            } else if cx.filter_option.audio_only {
-                cx.downloader
-                    .multi_fetch_audio(
-                        &mix_stream.urls(cx.config.cdn_sorting),
-                        video_path,
                         &cx.config.concurrent_limit.download,
                     )
                     .await?
