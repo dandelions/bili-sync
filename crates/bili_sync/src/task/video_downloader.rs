@@ -142,7 +142,7 @@ impl DownloadTaskManager {
             });
         }
         let cx = self.cx.clone();
-        let _ = self
+        let scheduled = self
             .sched
             .lock()
             .await
@@ -217,7 +217,14 @@ impl DownloadTaskManager {
                     })
                 },
             )?)
-            .await?;
+            .await;
+        if let Err(error) = scheduled {
+            let mut current = self.cx.source_task.lock().await;
+            if current.as_ref().is_some_and(|task| task.id == task_id) {
+                *current = None;
+            }
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -450,12 +457,15 @@ impl DownloadTaskManager {
                     warn!("上一次视频下载任务尚未结束，跳过本次执行..");
                     return;
                 };
+                let previous_status = cx.status_rx.borrow().clone();
                 let _ = cx.status_tx.send(TaskStatus {
                     is_running: true,
                     last_run: Some(chrono::Local::now()),
                     last_finish: None,
                     next_run: None,
-                    ..Default::default()
+                    source_type: previous_status.source_type,
+                    source_id: previous_status.source_id,
+                    is_paused: previous_status.is_paused,
                 });
                 info!("开始执行本轮视频下载任务..");
                 let mut config = VersionedConfig::get().snapshot();
@@ -484,7 +494,9 @@ impl DownloadTaskManager {
                     last_run: last_status.last_run,
                     last_finish: Some(chrono::Local::now()),
                     next_run,
-                    ..Default::default()
+                    source_type: last_status.source_type,
+                    source_id: last_status.source_id,
+                    is_paused: last_status.is_paused,
                 });
             })
         }

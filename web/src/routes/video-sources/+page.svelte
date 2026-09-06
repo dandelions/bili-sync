@@ -42,12 +42,12 @@
 
 	let videoSourcesData: VideoSourcesDetailsResponse | null = null;
 	let loading = false;
-	let activeTab = 'normal_videos';
+	let activeTab = 'favorites';
 	let globalFilterOption: FilterOption | null = null;
 
 	// 添加对话框状态
 	let showAddDialog = false;
-	let addDialogType: 'favorites' | 'collections' | 'submissions' | 'normal_videos' = 'normal_videos';
+	let addDialogType: 'favorites' | 'collections' | 'submissions' | 'normal_videos' = 'favorites';
 	let adding = false;
 
 	// 编辑对话框状态

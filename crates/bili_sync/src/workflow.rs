@@ -589,6 +589,10 @@ pub async fn download_page(
     } else {
         video_path.clone()
     };
+    let legacy_video_path = page_model.path.as_deref().map(PathBuf::from).filter(|path| {
+        path.extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+    });
     let saved_audio_path = audio_path.as_deref().filter(|_| save_audio);
     let download_audio_path = audio_path.as_deref().filter(|_| audio_only || save_audio);
     let dimension = match (page_model.width, page_model.height) {
@@ -687,11 +691,21 @@ pub async fn download_page(
             bail!(e);
         }
     }
-    if audio_only && video_path.exists() {
-        if let Err(error) = fs::remove_file(video_path.clone()).await
-            && error.kind() != std::io::ErrorKind::NotFound
+    if audio_only {
+        for stale_video_path in [Some(video_path.clone()), legacy_video_path]
+            .into_iter()
+            .flatten()
+            .filter(|path| path != &media_path)
         {
-            warn!("清理纯音频模式下的旧视频文件失败 {}: {}", video_path.display(), error);
+            if let Err(error) = fs::remove_file(&stale_video_path).await
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                warn!(
+                    "清理纯音频模式下的旧视频文件失败 {}: {}",
+                    stale_video_path.display(),
+                    error
+                );
+            }
         }
     }
     let mut page_active_model: page::ActiveModel = page_model.into();
@@ -752,7 +766,7 @@ pub async fn fetch_page_video(
         .best_stream(cx.filter_option)?;
     match streams {
         BestStream::Audio(audio_stream) => {
-            let audio_path = audio_path.unwrap_or(video_path);
+            let audio_path = audio_path.context("纯音频模式缺少音频输出路径")?;
             cx.downloader
                 .multi_fetch_audio_track(
                     &audio_stream.urls(cx.config.cdn_sorting),
@@ -763,10 +777,11 @@ pub async fn fetch_page_video(
         }
         BestStream::Mixed(mix_stream) => {
             if cx.filter_option.audio_only && !cx.filter_option.save_audio {
+                let audio_path = audio_path.context("纯音频模式缺少音频输出路径")?;
                 cx.downloader
                     .multi_fetch_audio(
                         &mix_stream.urls(cx.config.cdn_sorting),
-                        audio_path.unwrap_or(video_path),
+                        audio_path,
                         &cx.config.concurrent_limit.download,
                     )
                     .await?
@@ -808,10 +823,11 @@ pub async fn fetch_page_video(
             video: _,
             audio: Some(audio_stream),
         } if cx.filter_option.audio_only && !cx.filter_option.save_audio => {
+            let audio_path = audio_path.context("纯音频模式缺少音频输出路径")?;
             cx.downloader
                 .multi_fetch_audio_track(
                     &audio_stream.urls(cx.config.cdn_sorting),
-                    audio_path.unwrap_or(video_path),
+                    audio_path,
                     &cx.config.concurrent_limit.download,
                 )
                 .await?
