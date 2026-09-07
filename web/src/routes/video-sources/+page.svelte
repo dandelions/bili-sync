@@ -30,6 +30,7 @@
 	import type {
 		ApiError,
 		FilterOption,
+		NormalVideoDownloadMode,
 		VideoSourceDetail,
 		VideoSourcesDetailsResponse,
 		Rule
@@ -103,7 +104,11 @@
 	let favoriteForm = { fid: '', path: '' };
 	let collectionForm = { sid: '', mid: '', collection_type: '2', path: '' }; // 默认为合集
 	let submissionForm = { upper_id: '', path: '' };
-	let normalVideoForm = { video: '', path: '' };
+	let normalVideoForm: { video: string; path: string; downloadMode: NormalVideoDownloadMode } = {
+		video: '',
+		path: '',
+		downloadMode: 'video'
+	};
 
 	const TAB_CONFIG = {
 		favorites: { label: '收藏夹', icon: HeartIcon },
@@ -339,7 +344,7 @@
 		favoriteForm = { fid: '', path: '' };
 		collectionForm = { sid: '', mid: '', collection_type: '2', path: '' };
 		submissionForm = { upper_id: '', path: '' };
-		normalVideoForm = { video: '', path: '' };
+		normalVideoForm = { video: '', path: '', downloadMode: 'video' };
 		showAddDialog = true;
 	}
 
@@ -920,6 +925,19 @@
 						<div>
 							<Label for="normal-video" class="text-sm font-medium">视频 BV / av / URL</Label>
 							<Input id="normal-video" type="text" bind:value={normalVideoForm.video} placeholder="BV...、av123 或 bilibili.com/video/BV..." class="mt-1" />
+						</div>
+						<div>
+							<Label for="normal-video-download-mode" class="text-sm font-medium">下载内容</Label>
+							<select
+								id="normal-video-download-mode"
+								bind:value={normalVideoForm.downloadMode}
+								class="border-input bg-background ring-offset-background focus-visible:ring-ring mt-1 flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+							>
+								<option value="video">视频</option>
+								<option value="audio">仅音频</option>
+								<option value="video_audio">视频和音频</option>
+							</select>
+							<p class="text-muted-foreground mt-1 text-xs">默认下载视频；音频文件保存为 M4A。</p>
 						</div>
 					</div>
 				{/if}

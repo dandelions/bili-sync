@@ -141,12 +141,31 @@ pub struct InsertSubmissionRequest {
     pub path: String,
 }
 
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum NormalVideoDownloadMode {
+    #[serde(alias = "video")]
+    Video,
+    #[serde(alias = "audio")]
+    Audio,
+    #[serde(alias = "video_audio")]
+    VideoAudio,
+}
+
+impl Default for NormalVideoDownloadMode {
+    fn default() -> Self {
+        Self::Video
+    }
+}
+
 #[derive(Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct InsertNormalVideoRequest {
     pub video: String,
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
+    #[serde(default)]
+    pub download_mode: NormalVideoDownloadMode,
 }
 
 #[derive(Deserialize, Validate)]

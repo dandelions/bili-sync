@@ -224,9 +224,12 @@ export interface InsertSubmissionRequest {
 	path: string;
 }
 
+export type NormalVideoDownloadMode = 'video' | 'audio' | 'video_audio';
+
 export interface InsertNormalVideoRequest {
 	video: string;
 	path: string;
+	downloadMode: NormalVideoDownloadMode;
 }
 
 export interface Condition<T> {

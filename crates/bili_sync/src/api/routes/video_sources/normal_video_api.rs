@@ -5,7 +5,7 @@ use bili_sync_entity::normal_video;
 use sea_orm::ActiveValue::Set;
 
 use crate::adapter::{NormalVideoInput, parse_normal_video_input};
-use crate::api::request::InsertNormalVideoRequest;
+use crate::api::request::{InsertNormalVideoRequest, NormalVideoDownloadMode};
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::bilibili::{BiliClient, Video, VideoInfo};
 use crate::config::VersionedConfig;
@@ -30,10 +30,14 @@ pub async fn insert_normal_video(
     let VideoInfo::Detail { title, bvid, .. } = detail else {
         unreachable!()
     };
+    let mut filter_option = VersionedConfig::get().read().filter_option.clone();
+    filter_option.audio_only = matches!(request.download_mode, NormalVideoDownloadMode::Audio);
+    filter_option.save_audio = matches!(request.download_mode, NormalVideoDownloadMode::VideoAudio);
     normal_video::Entity::insert(normal_video::ActiveModel {
         bvid: Set(bvid),
         name: Set(title),
         path: Set(request.path),
+        filter_option: Set(Some(serde_json::to_value(filter_option)?)),
         enabled: Set(false),
         ..Default::default()
     })
