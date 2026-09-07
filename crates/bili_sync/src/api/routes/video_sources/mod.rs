@@ -28,6 +28,7 @@ use crate::api::response::{
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::bilibili::{BiliClient, Collection, CollectionItem, FavoriteList, Submission};
 use crate::config::{PathSafeTemplate, TEMPLATE, VersionedConfig};
+use crate::utils::model::reset_media_download_status;
 use crate::utils::rule::FieldEvaluatable;
 
 mod normal_video_api;
@@ -246,6 +247,16 @@ pub async fn update_video_source(
             serde_json::to_value(option)
         })
         .transpose()?;
+    let source_filter = match source_type.as_str() {
+        "collections" => video::Column::CollectionId.eq(id),
+        "favorites" => video::Column::FavoriteId.eq(id),
+        "submissions" => video::Column::SubmissionId.eq(id),
+        "watch_later" => video::Column::WatchLaterId.eq(id),
+        "normal_videos" | "normal_video" => video::Column::NormalVideoId.eq(id),
+        _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
+    };
+    let should_reset_media =
+        matches!(source_type.as_str(), "normal_videos" | "normal_video") || filter_option.is_some();
     let active_model = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: collection::ActiveModel = model.into();
@@ -315,6 +326,9 @@ pub async fn update_video_source(
         return Err(InnerApiError::NotFound(id).into());
     };
     active_model.save(&db).await?;
+    if should_reset_media {
+        reset_media_download_status(source_filter, &db).await?;
+    }
     Ok(ApiResponse::ok(UpdateVideoSourceResponse { rule_display }))
 }
 

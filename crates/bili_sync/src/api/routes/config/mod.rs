@@ -10,6 +10,7 @@ use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::bilibili::BiliClient;
 use crate::config::{Config, VersionedConfig};
 use crate::notifier::{Message, Notifier};
+use crate::utils::model::reset_all_media_download_status;
 
 pub(super) fn router() -> Router {
     Router::new()
@@ -28,7 +29,13 @@ pub async fn update_config(
     ValidatedJson(config): ValidatedJson<Config>,
 ) -> Result<ApiResponse<Arc<Config>>, ApiError> {
     config.check()?;
+    let previous_config = VersionedConfig::get().snapshot();
+    let media_filter_changed =
+        serde_json::to_value(&previous_config.filter_option)? != serde_json::to_value(&config.filter_option)?;
     let new_config = VersionedConfig::get().update(config, &db).await?;
+    if media_filter_changed {
+        reset_all_media_download_status(&db).await?;
+    }
     Ok(ApiResponse::ok(new_config))
 }
 

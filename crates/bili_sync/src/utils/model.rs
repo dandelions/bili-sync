@@ -5,12 +5,12 @@ use rand::seq::SliceRandom;
 use sea_orm::ActiveValue::Set;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{Expr, OnConflict, SimpleExpr};
-use sea_orm::{ConnectionTrait, DatabaseTransaction, IdenStatic, Statement};
+use sea_orm::{ConnectionTrait, DatabaseTransaction, IdenStatic, QuerySelect, Statement, TransactionTrait};
 
 use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::VideoInfo;
 use crate::config::Config;
-use crate::utils::status::STATUS_COMPLETED;
+use crate::utils::status::{PageStatus, STATUS_COMPLETED, VideoStatus};
 
 /// 筛选未填充的视频
 pub async fn filter_unfilled_videos(
@@ -208,6 +208,60 @@ pub async fn update_pages_model(pages: Vec<page::ActiveModel>, connection: &Data
             .to_owned(),
     );
     query.exec(connection).await?;
+    Ok(())
+}
+
+/// 将指定视频源关联的视频和分页媒体任务重置为未开始，供下载筛选配置变更后重新生成媒体文件。
+pub async fn reset_media_download_status(source_filter: SimpleExpr, connection: &DatabaseConnection) -> Result<()> {
+    let video_ids = video::Entity::find()
+        .filter(source_filter)
+        .select_only()
+        .column(video::Column::Id)
+        .into_tuple::<i32>()
+        .all(connection)
+        .await?;
+    if video_ids.is_empty() {
+        return Ok(());
+    }
+    let txn = connection.begin().await?;
+    video::Entity::update_many()
+        .col_expr(
+            video::Column::DownloadStatus,
+            VideoStatus::query_builder().reset_subtask(4),
+        )
+        .filter(video::Column::Id.is_in(video_ids.iter().copied()))
+        .exec(&txn)
+        .await?;
+    page::Entity::update_many()
+        .col_expr(
+            page::Column::DownloadStatus,
+            PageStatus::query_builder().reset_subtask(1),
+        )
+        .filter(page::Column::VideoId.is_in(video_ids))
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
+    Ok(())
+}
+
+/// 将所有视频和分页媒体任务重置为未开始，供全局下载筛选配置变更后重新生成媒体文件。
+pub async fn reset_all_media_download_status(connection: &DatabaseConnection) -> Result<()> {
+    let txn = connection.begin().await?;
+    video::Entity::update_many()
+        .col_expr(
+            video::Column::DownloadStatus,
+            VideoStatus::query_builder().reset_subtask(4),
+        )
+        .exec(&txn)
+        .await?;
+    page::Entity::update_many()
+        .col_expr(
+            page::Column::DownloadStatus,
+            PageStatus::query_builder().reset_subtask(1),
+        )
+        .exec(&txn)
+        .await?;
+    txn.commit().await?;
     Ok(())
 }
 
