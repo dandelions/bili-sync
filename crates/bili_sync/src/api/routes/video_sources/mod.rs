@@ -119,6 +119,7 @@ pub async fn get_video_sources_details(
                 collection::Column::Path,
                 collection::Column::Rule,
                 collection::Column::FilterOption,
+                collection::Column::VideoName,
                 collection::Column::Enabled,
                 collection::Column::LatestRowAt
             ])
@@ -132,6 +133,7 @@ pub async fn get_video_sources_details(
                 favorite::Column::Path,
                 favorite::Column::Rule,
                 favorite::Column::FilterOption,
+                favorite::Column::VideoName,
                 favorite::Column::Enabled,
                 favorite::Column::LatestRowAt
             ])
@@ -146,6 +148,7 @@ pub async fn get_video_sources_details(
                 submission::Column::Enabled,
                 submission::Column::Rule,
                 submission::Column::FilterOption,
+                submission::Column::VideoName,
                 submission::Column::UseDynamicApi,
                 submission::Column::LatestRowAt
             ])
@@ -160,6 +163,7 @@ pub async fn get_video_sources_details(
                 watch_later::Column::Enabled,
                 watch_later::Column::Rule,
                 watch_later::Column::FilterOption,
+                watch_later::Column::VideoName,
                 watch_later::Column::LatestRowAt
             ])
             .into_model::<VideoSourceDetail>()
@@ -172,6 +176,7 @@ pub async fn get_video_sources_details(
                 normal_video::Column::Path,
                 normal_video::Column::Rule,
                 normal_video::Column::FilterOption,
+                normal_video::Column::VideoName,
                 normal_video::Column::Enabled,
                 normal_video::Column::LatestRowAt,
             ])
@@ -186,6 +191,7 @@ pub async fn get_video_sources_details(
             rule: None,
             filter_option: None,
             rule_display: None,
+            video_name: None,
             use_dynamic_api: None,
             enabled: false,
             latest_row_at: None,
@@ -255,8 +261,14 @@ pub async fn update_video_source(
         "normal_videos" | "normal_video" => video::Column::NormalVideoId.eq(id),
         _ => return Err(InnerApiError::BadRequest("Invalid video source type".to_string()).into()),
     };
-    let should_reset_media =
-        matches!(source_type.as_str(), "normal_videos" | "normal_video") || filter_option.is_some();
+    let has_video_name_field = request.video_name.is_some();
+    let video_name = request
+        .video_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let should_reset_media = matches!(source_type.as_str(), "normal_videos" | "normal_video")
+        || filter_option.is_some()
+        || has_video_name_field;
     let active_model = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: collection::ActiveModel = model.into();
@@ -264,6 +276,7 @@ pub async fn update_video_source(
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule);
             active_model.filter_option = Set(filter_option);
+            active_model.video_name = Set(video_name.clone());
             _ActiveModel::Collection(active_model)
         }),
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(|model| {
@@ -272,6 +285,7 @@ pub async fn update_video_source(
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule);
             active_model.filter_option = Set(filter_option);
+            active_model.video_name = Set(video_name.clone());
             _ActiveModel::Favorite(active_model)
         }),
         "submissions" => submission::Entity::find_by_id(id).one(&db).await?.map(|model| {
@@ -280,6 +294,7 @@ pub async fn update_video_source(
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule.clone());
             active_model.filter_option = Set(filter_option.clone());
+            active_model.video_name = Set(video_name.clone());
             if let Some(use_dynamic_api) = request.use_dynamic_api {
                 active_model.use_dynamic_api = Set(use_dynamic_api);
             }
@@ -291,6 +306,7 @@ pub async fn update_video_source(
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule.clone());
             active_model.filter_option = Set(filter_option.clone());
+            active_model.video_name = Set(video_name.clone());
             _ActiveModel::NormalVideo(active_model)
         }),
         "watch_later" => match watch_later::Entity::find_by_id(id).one(&db).await? {
@@ -303,6 +319,7 @@ pub async fn update_video_source(
                 active_model.enabled = Set(request.enabled);
                 active_model.rule = Set(request.rule);
                 active_model.filter_option = Set(filter_option);
+                active_model.video_name = Set(video_name);
                 Some(_ActiveModel::WatchLater(active_model))
             }
             None => {
@@ -315,6 +332,7 @@ pub async fn update_video_source(
                         enabled: Set(request.enabled),
                         rule: Set(request.rule),
                         filter_option: Set(filter_option),
+                        video_name: Set(video_name),
                         ..Default::default()
                     }))
                 }

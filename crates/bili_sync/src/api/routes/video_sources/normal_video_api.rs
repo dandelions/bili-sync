@@ -33,11 +33,16 @@ pub async fn insert_normal_video(
     let mut filter_option = VersionedConfig::get().read().filter_option.clone();
     filter_option.audio_only = matches!(request.download_mode, NormalVideoDownloadMode::Audio);
     filter_option.save_audio = matches!(request.download_mode, NormalVideoDownloadMode::VideoAudio);
+    let video_name = request
+        .video_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     normal_video::Entity::insert(normal_video::ActiveModel {
         bvid: Set(bvid),
         name: Set(title),
         path: Set(request.path),
         filter_option: Set(Some(serde_json::to_value(filter_option)?)),
+        video_name: Set(video_name),
         enabled: Set(false),
         ..Default::default()
     })

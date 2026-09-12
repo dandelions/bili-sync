@@ -11,9 +11,13 @@ pub static TEMPLATE: LazyLock<VersionedCache<handlebars::Handlebars<'static>>> =
     LazyLock::new(|| VersionedCache::new(create_template).expect("Failed to create handlebars template"));
 
 fn create_template(config: &Config) -> Result<handlebars::Handlebars<'static>> {
+    create_template_with_video_name(config, &config.video_name)
+}
+
+pub fn create_template_with_video_name(config: &Config, video_name: &str) -> Result<handlebars::Handlebars<'static>> {
     let mut handlebars = handlebars::Handlebars::new();
     handlebars.register_helper("truncate", Box::new(truncate));
-    handlebars.path_safe_register("video", config.video_name.clone())?;
+    handlebars.path_safe_register("video", video_name.to_owned())?;
     handlebars.path_safe_register("page", config.page_name.clone())?;
     handlebars.path_safe_register("favorite_default_path", config.favorite_default_path.clone())?;
     handlebars.path_safe_register("collection_default_path", config.collection_default_path.clone())?;

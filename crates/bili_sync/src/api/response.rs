@@ -230,6 +230,7 @@ pub struct VideoSourceDetail {
     pub path: String,
     pub rule: Option<Rule>,
     pub filter_option: Option<serde_json::Value>,
+    pub video_name: Option<String>,
     #[serde(default)]
     pub rule_display: Option<String>,
     #[serde(default)]

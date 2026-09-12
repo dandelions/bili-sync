@@ -230,6 +230,7 @@ export interface InsertNormalVideoRequest {
 	video: string;
 	path: string;
 	downloadMode: NormalVideoDownloadMode;
+	videoName?: string;
 }
 
 export interface Condition<T> {
@@ -252,6 +253,7 @@ export interface VideoSourceDetail {
 	rule: Rule | null;
 	ruleDisplay: string | null;
 	filterOption: FilterOption | null;
+	videoName?: string | null;
 	useDynamicApi: boolean | null;
 	enabled: boolean;
 	latestRowAt: string | null;
@@ -270,6 +272,7 @@ export interface UpdateVideoSourceRequest {
 	enabled: boolean;
 	rule?: Rule | null;
 	filterOption?: FilterOption | null;
+	videoName?: string | null;
 	useDynamicApi?: boolean | null;
 }
 

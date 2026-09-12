@@ -95,6 +95,10 @@ impl VideoSource for normal_video::Model {
         &self.filter_option
     }
 
+    fn video_name(&self) -> Option<&str> {
+        self.video_name.as_deref().filter(|s| !s.trim().is_empty())
+    }
+
     async fn refresh<'a>(
         self,
         bili_client: &'a BiliClient,

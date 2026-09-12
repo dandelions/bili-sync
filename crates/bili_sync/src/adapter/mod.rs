@@ -85,6 +85,8 @@ pub trait VideoSource {
 
     fn filter_option(&self) -> &Option<Json>;
 
+    fn video_name(&self) -> Option<&str>;
+
     fn log_refresh_video_start(&self) {
         info!("开始扫描{}..", self.display_name());
     }

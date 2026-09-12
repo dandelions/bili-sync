@@ -231,10 +231,15 @@ pub async fn download_unprocessed_videos(
         filter_option.audio_only,
         filter_option.save_audio
     );
+    let custom_template = match video_source.video_name() {
+        Some(custom_name) => Some(crate::config::create_template_with_video_name(config, custom_name)?),
+        None => None,
+    };
+    let effective_template = custom_template.as_ref().unwrap_or(template);
     let cx = DownloadContext::new(
         bili_client,
         video_source,
-        template,
+        effective_template,
         connection,
         &downloader,
         config,

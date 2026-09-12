@@ -45,6 +45,7 @@
 	let loading = false;
 	let activeTab = 'favorites';
 	let globalFilterOption: FilterOption | null = null;
+	let globalVideoName = '';
 
 	// 添加对话框状态
 	let showAddDialog = false;
@@ -95,6 +96,7 @@
 	// 编辑表单数据
 	let editForm = {
 		path: '',
+		videoName: '',
 		enabled: false,
 		rule: null as Rule | null,
 		useDynamicApi: null as boolean | null
@@ -104,9 +106,10 @@
 	let favoriteForm = { fid: '', path: '' };
 	let collectionForm = { sid: '', mid: '', collection_type: '2', path: '' }; // 默认为合集
 	let submissionForm = { upper_id: '', path: '' };
-	let normalVideoForm: { video: string; path: string; downloadMode: NormalVideoDownloadMode } = {
+	let normalVideoForm: { video: string; path: string; videoName: string; downloadMode: NormalVideoDownloadMode } = {
 		video: '',
 		path: '',
+		videoName: '',
 		downloadMode: 'video'
 	};
 
@@ -128,6 +131,7 @@
 			]);
 			videoSourcesData = response.data;
 			globalFilterOption = normalizeFilterOption(configResponse.data.filter_option);
+			globalVideoName = configResponse.data.video_name ?? '';
 		} catch (error) {
 			toast.error('加载视频源失败', {
 				description: (error as ApiError).message
@@ -144,6 +148,7 @@
 		editingIdx = idx;
 		editForm = {
 			path: source.path,
+			videoName: source.videoName ?? '',
 			enabled: source.enabled,
 			useDynamicApi: source.useDynamicApi,
 			rule: source.rule
@@ -253,6 +258,7 @@
 		try {
 			let response = await api.updateVideoSource(editingType, editingSource.id, {
 				path: editForm.path,
+				videoName: editForm.videoName.trim() ? editForm.videoName.trim() : '',
 				enabled: editForm.enabled,
 				rule: editForm.rule,
 				useDynamicApi: editForm.useDynamicApi,
@@ -266,6 +272,7 @@
 				sources[editingIdx] = {
 					...sources[editingIdx],
 					path: editForm.path,
+					videoName: editForm.videoName.trim() ? editForm.videoName.trim() : null,
 					enabled: editForm.enabled,
 					rule: editForm.rule,
 					useDynamicApi: editForm.useDynamicApi,
@@ -344,7 +351,7 @@
 		favoriteForm = { fid: '', path: '' };
 		collectionForm = { sid: '', mid: '', collection_type: '2', path: '' };
 		submissionForm = { upper_id: '', path: '' };
-		normalVideoForm = { video: '', path: '', downloadMode: 'video' };
+		normalVideoForm = { video: '', path: '', videoName: '', downloadMode: 'video' };
 		showAddDialog = true;
 	}
 
@@ -727,6 +734,31 @@
 					<RuleEditor rule={editForm.rule} onRuleChange={(rule) => (editForm.rule = rule)} />
 				</div>
 
+				<!-- 视频文件名模板 -->
+				<div class="space-y-2">
+					<div class="flex items-center space-x-2">
+						<Label for="edit-video-name" class="text-sm font-medium">视频文件名模板</Label>
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								<InfoIcon class="text-muted-foreground h-3.5 w-3.5" />
+							</Tooltip.Trigger>
+							<Tooltip.Content>
+								<p class="text-xs">
+									留空则使用全局默认模板（当前为：{globalVideoName || '{{title}}'}）。
+								</p>
+							</Tooltip.Content>
+						</Tooltip.Root>
+					</div>
+					<Input
+						id="edit-video-name"
+						bind:value={editForm.videoName}
+						placeholder={globalVideoName || '{{title}}'}
+					/>
+					<p class="text-muted-foreground text-xs">
+						支持 Handlebars 模板语法。留空时使用全局配置。
+					</p>
+				</div>
+
 				<div class="space-y-4">
 					<div class="flex items-center space-x-2">
 						<Switch bind:checked={useCustomFilterOption} />
@@ -938,6 +970,17 @@
 								<option value="video_audio">视频和音频</option>
 							</select>
 							<p class="text-muted-foreground mt-1 text-xs">默认下载视频；音频文件保存为 M4A。</p>
+						</div>
+						<div>
+							<Label for="normal-video-name" class="text-sm font-medium">视频文件名模板（可选）</Label>
+							<Input
+								id="normal-video-name"
+								type="text"
+								bind:value={normalVideoForm.videoName}
+								placeholder={globalVideoName || '{{title}}'}
+								class="mt-1"
+							/>
+							<p class="text-muted-foreground mt-1 text-xs">留空则使用全局默认模板。</p>
 						</div>
 					</div>
 				{/if}

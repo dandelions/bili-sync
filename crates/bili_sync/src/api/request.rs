@@ -166,6 +166,7 @@ pub struct InsertNormalVideoRequest {
     pub path: String,
     #[serde(default)]
     pub download_mode: NormalVideoDownloadMode,
+    pub video_name: Option<String>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -176,6 +177,7 @@ pub struct UpdateVideoSourceRequest {
     pub enabled: bool,
     pub rule: Option<Rule>,
     pub filter_option: Option<FilterOption>,
+    pub video_name: Option<String>,
     pub use_dynamic_api: Option<bool>,
 }
 

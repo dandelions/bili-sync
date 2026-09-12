@@ -9,7 +9,7 @@ mod versioned_config;
 pub use crate::config::args::{ARGS, version};
 pub use crate::config::current::{CONFIG_DIR, Config};
 pub(crate) use crate::config::default::default_bind_address;
-pub use crate::config::handlebar::TEMPLATE;
+pub use crate::config::handlebar::{TEMPLATE, create_template_with_video_name};
 pub use crate::config::item::{
     ConcurrentDownloadLimit, DanmakuUpdateMilestone, NFOTimeType, PathSafeTemplate, RateLimit, Trigger,
 };

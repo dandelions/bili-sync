@@ -14,6 +14,7 @@ pub struct Model {
     pub latest_row_at: DateTime,
     pub rule: Option<Rule>,
     pub filter_option: Option<Json>,
+    pub video_name: Option<String>,
     pub enabled: bool,
 }
 
