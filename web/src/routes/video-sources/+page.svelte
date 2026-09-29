@@ -40,6 +40,7 @@
 	import ListRestartIcon from '@lucide/svelte/icons/list-restart';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import FilterOptionEditor from '$lib/components/filter-option-editor.svelte';
+	import VideoNameTemplateSelector from '$lib/components/video-name-template-selector.svelte';
 
 	let videoSourcesData: VideoSourcesDetailsResponse | null = null;
 	let loading = false;
@@ -62,7 +63,11 @@
 	let editFilterOption: FilterOption | null = null;
 
 	function normalizeFilterOption(option: FilterOption): FilterOption {
-		return { ...option, audio_only: option.audio_only ?? false, save_audio: option.save_audio ?? false };
+		return {
+			...option,
+			audio_only: option.audio_only ?? false,
+			save_audio: option.save_audio ?? false
+		};
 	}
 
 	// 规则评估对话框状态
@@ -85,7 +90,12 @@
 	let fullSyncDeleteLocal = false;
 	let fullSyncing = false;
 	let downloadingSourceId: string | null = null;
-	let sourceTaskStatus: { source_type: string | null; source_id: number | null; is_running: boolean; is_paused: boolean } = {
+	let sourceTaskStatus: {
+		source_type: string | null;
+		source_id: number | null;
+		is_running: boolean;
+		is_paused: boolean;
+	} = {
 		source_type: null,
 		source_id: null,
 		is_running: false,
@@ -106,7 +116,12 @@
 	let favoriteForm = { fid: '', path: '' };
 	let collectionForm = { sid: '', mid: '', collection_type: '2', path: '' }; // 默认为合集
 	let submissionForm = { upper_id: '', path: '' };
-	let normalVideoForm: { video: string; path: string; videoName: string; downloadMode: NormalVideoDownloadMode } = {
+	let normalVideoForm: {
+		video: string;
+		path: string;
+		videoName: string;
+		downloadMode: NormalVideoDownloadMode;
+	} = {
 		video: '',
 		path: '',
 		videoName: '',
@@ -154,7 +169,9 @@
 			rule: source.rule
 		};
 		useCustomFilterOption = source.filterOption !== null;
-		editFilterOption = normalizeFilterOption(structuredClone(source.filterOption ?? globalFilterOption!));
+		editFilterOption = normalizeFilterOption(
+			structuredClone(source.filterOption ?? globalFilterOption!)
+		);
 		showEditDialog = true;
 	}
 
@@ -193,7 +210,11 @@
 	}
 
 	function isSourceTaskActive(type: string, source: VideoSourceDetail) {
-		return sourceTaskStatus.source_type === type && sourceTaskStatus.source_id === source.id && (sourceTaskStatus.is_running || sourceTaskStatus.is_paused);
+		return (
+			sourceTaskStatus.source_type === type &&
+			sourceTaskStatus.source_id === source.id &&
+			(sourceTaskStatus.is_running || sourceTaskStatus.is_paused)
+		);
 	}
 
 	async function toggleSourceTask(type: string, source: VideoSourceDetail) {
@@ -575,10 +596,15 @@
 															size="sm"
 															variant="outline"
 															onclick={() => downloadVideoSource(key, source)}
-															disabled={downloadingSourceId === `${key}:${source.id}` || isSourceTaskActive(key, source)}
+															disabled={downloadingSourceId === `${key}:${source.id}` ||
+																isSourceTaskActive(key, source)}
 															class="h-8 w-8 p-0"
 														>
-															<DownloadIcon class={downloadingSourceId === `${key}:${source.id}` ? 'h-3 w-3 animate-pulse' : 'h-3 w-3'} />
+															<DownloadIcon
+																class={downloadingSourceId === `${key}:${source.id}`
+																	? 'h-3 w-3 animate-pulse'
+																	: 'h-3 w-3'}
+															/>
 														</Button>
 													</Tooltip.Trigger>
 													<Tooltip.Content>
@@ -603,7 +629,9 @@
 															</Button>
 														</Tooltip.Trigger>
 														<Tooltip.Content>
-															<p class="text-xs">{sourceTaskStatus.is_paused ? '恢复下载' : '暂停下载'}</p>
+															<p class="text-xs">
+																{sourceTaskStatus.is_paused ? '恢复下载' : '暂停下载'}
+															</p>
 														</Tooltip.Content>
 													</Tooltip.Root>
 												{/if}
@@ -735,29 +763,13 @@
 				</div>
 
 				<!-- 视频文件名模板 -->
-				<div class="space-y-2">
-					<div class="flex items-center space-x-2">
-						<Label for="edit-video-name" class="text-sm font-medium">视频文件名模板</Label>
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								<InfoIcon class="text-muted-foreground h-3.5 w-3.5" />
-							</Tooltip.Trigger>
-							<Tooltip.Content>
-								<p class="text-xs">
-									留空则使用全局默认模板（当前为：{globalVideoName || '{{title}}'}）。
-								</p>
-							</Tooltip.Content>
-						</Tooltip.Root>
-					</div>
-					<Input
-						id="edit-video-name"
-						bind:value={editForm.videoName}
-						placeholder={globalVideoName || '{{title}}'}
-					/>
-					<p class="text-muted-foreground text-xs">
-						支持 Handlebars 模板语法。留空时使用全局配置。
-					</p>
-				</div>
+				<VideoNameTemplateSelector
+					id="edit-video-name"
+					bind:value={editForm.videoName}
+					placeholder={globalVideoName || '{{title}}'}
+					label="视频文件名模板"
+					description="支持 Handlebars 模板语法。留空时使用全局配置。"
+				/>
 
 				<div class="space-y-4">
 					<div class="flex items-center space-x-2">
@@ -876,7 +888,7 @@
 
 	<!-- 添加对话框 -->
 	<Dialog.Root bind:open={showAddDialog}>
-		<Dialog.Content>
+		<Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-[550px]">
 			<Dialog.Title class="text-lg font-semibold">
 				{#if addDialogType === 'favorites'}
 					添加收藏夹
@@ -949,14 +961,26 @@
 					<div class="space-y-4">
 						<div>
 							<Label for="upper_id" class="text-sm font-medium">UP主ID (mid)</Label>
-							<Input id="upper_id" type="number" bind:value={submissionForm.upper_id} placeholder="请输入UP主ID" class="mt-1" />
+							<Input
+								id="upper_id"
+								type="number"
+								bind:value={submissionForm.upper_id}
+								placeholder="请输入UP主ID"
+								class="mt-1"
+							/>
 						</div>
 					</div>
 				{:else}
 					<div class="space-y-4">
 						<div>
 							<Label for="normal-video" class="text-sm font-medium">视频 BV / av / URL</Label>
-							<Input id="normal-video" type="text" bind:value={normalVideoForm.video} placeholder="BV...、av123 或 bilibili.com/video/BV..." class="mt-1" />
+							<Input
+								id="normal-video"
+								type="text"
+								bind:value={normalVideoForm.video}
+								placeholder="BV...、av123 或 bilibili.com/video/BV..."
+								class="mt-1"
+							/>
 						</div>
 						<div>
 							<Label for="normal-video-download-mode" class="text-sm font-medium">下载内容</Label>
@@ -972,15 +996,13 @@
 							<p class="text-muted-foreground mt-1 text-xs">默认下载视频；音频文件保存为 M4A。</p>
 						</div>
 						<div>
-							<Label for="normal-video-name" class="text-sm font-medium">视频文件名模板（可选）</Label>
-							<Input
+							<VideoNameTemplateSelector
 								id="normal-video-name"
-								type="text"
 								bind:value={normalVideoForm.videoName}
 								placeholder={globalVideoName || '{{title}}'}
-								class="mt-1"
+								label="视频文件名模板（可选）"
+								description="留空则使用全局默认模板。"
 							/>
-							<p class="text-muted-foreground mt-1 text-xs">留空则使用全局默认模板。</p>
 						</div>
 					</div>
 				{/if}
@@ -1003,9 +1025,21 @@
 							class="mt-1"
 						/>
 					{:else if addDialogType === 'submissions'}
-						<Input id="path" type="text" bind:value={submissionForm.path} placeholder="请输入下载路径，例如：/path/to/download" class="mt-1" />
+						<Input
+							id="path"
+							type="text"
+							bind:value={submissionForm.path}
+							placeholder="请输入下载路径，例如：/path/to/download"
+							class="mt-1"
+						/>
 					{:else}
-						<Input id="path" type="text" bind:value={normalVideoForm.path} placeholder="请输入下载路径，例如：/path/to/download" class="mt-1" />
+						<Input
+							id="path"
+							type="text"
+							bind:value={normalVideoForm.path}
+							placeholder="请输入下载路径，例如：/path/to/download"
+							class="mt-1"
+						/>
 					{/if}
 				</div>
 			</div>
