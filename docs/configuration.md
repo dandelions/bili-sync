@@ -42,11 +42,16 @@
 
 这两个模板参数会在运行时解析，其中用 <code v-pre>{{  }}</code> 包裹的模板变量会被动态替换为对应的内容。
 
-对于 `video_name`，支持设置 bvid（视频编号）、title（视频标题）、upper_name（up 主名称）、upper_mid（up 主 id）、pubtime（视频发布时间）、fav_time（视频收藏时间）。
+对于 `video_name`，支持设置 bvid（视频编号）、title（视频标题）、upper_name（up 主名称）、upper_mid（up 主 id）、pubtime（视频发布时间）、fav_time（视频收藏时间）、ptitle（分 P 标题，单 P 视频时回退为视频标题）、pid（分 P 页号）。
 
-对于 `page_name`，除支持 video 的全部参数外，还支持 ptitle（分 P 标题）、pid（分 P 页号）。
+对于 `page_name`，除支持 video 的全部参数外，同样支持 ptitle（分 P 标题）、pid（分 P 页号）。
 
-为了解决文件名可能过长的问题，程序为模板引入了 `truncate` 函数。如 <code v-pre>{{ truncate title 10 }}</code> 表示截取 `title` 的前 10 个字符。
+为了解决文件名过长或提取标题核心内容的需求，程序为模板引入了增强的 `truncate` 函数：
+- <code v-pre>{{ truncate title 10 }}</code>：截取 `title` 的前 10 个字符；
+- <code v-pre>{{ truncate title -10 }}</code>：截取 `title` 第 10 个字符之后的所有数据（即跳过前 10 个字符）；
+- <code v-pre>{{ truncate title start=10 }}</code> 或 <code v-pre>{{ truncate title offset=10 }}</code>：同样表示截取第 10 个字符之后的数据；
+- <code v-pre>{{ truncate title 10 5 }}</code> 或 <code v-pre>{{ truncate title 10 start=5 }}</code>：从第 5 个字符起截取 10 个字符；
+- <code v-pre>{{ truncate title "10:" }}</code>：支持切片语法，从第 10 个字符截取到末尾（也支持 <code v-pre>{{ truncate title ":10" }}</code> 或 <code v-pre>{{ truncate title "5:15" }}</code>）。
 
 > [!TIP]
 > 1. 仅收藏夹视频会区分 `fav_time` 和 `pubtime`，其它类型下载两者的取值是完全相同的；

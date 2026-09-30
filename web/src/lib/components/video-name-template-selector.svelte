@@ -42,15 +42,19 @@
 
 	const PRESET_TEMPLATES = [
 		{ template: '{{title}}', label: '默认标题' },
-		{ template: '{{pubtime}} {{title}}', label: '发布时间 标题' },
+		{ template: '{{title}} - {{ptitle}}', label: '标题 - 分页标题' },
+		{ template: '{{truncate title 10}}', label: '截取前10个字符' },
+		{ template: '{{truncate title -10}}', label: '截取10个字符之后数据' },
 		{ template: '{{upper_name}} - {{title}}', label: 'UP主 - 标题' },
+		{ template: '{{pubtime}} {{title}}', label: '发布时间 标题' },
 		{ template: '{{pubtime}}_{{upper_name}}_{{title}}', label: '时间_UP主_标题' },
-		{ template: '{{bvid}} - {{title}}', label: 'BV号 - 标题' },
-		{ template: '[{{upper_name}}] {{title}}', label: '[UP主] 标题' }
+		{ template: '{{bvid}} - {{title}}', label: 'BV号 - 标题' }
 	];
 
 	const VARIABLES = [
 		{ name: 'title', label: '视频标题' },
+		{ name: 'ptitle', label: '分页标题' },
+		{ name: 'pid', label: '分页序号' },
 		{ name: 'pubtime', label: '发布时间' },
 		{ name: 'upper_name', label: 'UP主名称' },
 		{ name: 'upper_mid', label: 'UP主ID' },
@@ -195,13 +199,32 @@
 					<Tooltip.Trigger>
 						<InfoIcon class="text-muted-foreground h-3.5 w-3.5" />
 					</Tooltip.Trigger>
-					<Tooltip.Content>
-						<p class="text-xs">
+					<Tooltip.Content class="max-w-[340px] text-xs leading-relaxed">
+						<p class="font-medium">
 							{tooltipContent ||
 								(placeholder
 									? `留空则使用全局默认模板（当前为：${placeholder}）。`
 									: '留空则使用全局默认模板。')}
 						</p>
+						<div class="text-muted-foreground mt-1.5 space-y-1 border-t pt-1.5 text-[11px]">
+							<p>
+								<span class="text-foreground font-mono">{'{{ptitle}}'}</span
+								>：分页标题（多P视频时取分P名，单P取视频标题）。
+							</p>
+							<p>
+								<span class="text-foreground font-mono">{'{{truncate title 10}}'}</span>：截取前 10
+								个字符。
+							</p>
+							<p>
+								<span class="text-foreground font-mono">{'{{truncate title -10}}'}</span> 或
+								<span class="text-foreground font-mono">{'start=10'}</span>：截取第 10
+								个字符之后的数据。
+							</p>
+							<p>
+								<span class="text-foreground font-mono">{'{{truncate title 10 5}}'}</span>：从第 5
+								个字符起截取 10 个字符。
+							</p>
+						</div>
 					</Tooltip.Content>
 				</Tooltip.Root>
 			{/if}

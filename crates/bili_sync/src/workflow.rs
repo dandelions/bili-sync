@@ -21,7 +21,7 @@ use crate::error::ExecutionStatus;
 use crate::notifier::DownloadNotifyInfo;
 use crate::utils::danmaku_schedule::should_sync_danmaku;
 use crate::utils::download_context::DownloadContext;
-use crate::utils::format_arg::video_format_args;
+use crate::utils::format_arg::{page_format_args, video_format_args};
 use crate::utils::model::{
     create_pages, create_videos, filter_unfilled_videos, filter_unhandled_video_pages, set_video_models_invalid,
     update_pages_model, update_video_detail_models, update_videos_model,
@@ -568,7 +568,7 @@ pub async fn download_page(
     let save_audio = cx.filter_option.save_audio;
     let rendered_video_name = cx
         .template
-        .path_safe_render("video", &video_format_args(video_model, &cx.config.time_format))?;
+        .path_safe_render("video", &page_format_args(video_model, &page_model, &cx.config.time_format))?;
     let base_name = Path::new(&rendered_video_name)
         .file_name()
         .context("video_name 模板未生成有效文件名")?

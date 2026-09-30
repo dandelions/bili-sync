@@ -6,6 +6,8 @@ pub fn video_format_args(video_model: &bili_sync_entity::video::Model, time_form
         "title": &video_model.name,
         "upper_name": &video_model.upper_name,
         "upper_mid": &video_model.upper_id,
+        "ptitle": &video_model.name,
+        "pid": 1,
         "pubtime": &video_model.pubtime.and_utc().format(time_format).to_string(),
         "fav_time": &video_model.favtime.and_utc().format(time_format).to_string(),
     })
