@@ -42,6 +42,7 @@
 
 	const PRESET_TEMPLATES = [
 		{ template: '{{title}}', label: '默认标题' },
+		{ template: '{{title}}/{{ptitle}}', label: '标题目录/分页标题' },
 		{ template: '{{title}} - {{ptitle}}', label: '标题 - 分页标题' },
 		{ template: '{{truncate title 10}}', label: '截取前10个字符' },
 		{ template: '{{truncate title -10}}', label: '截取10个字符之后数据' },

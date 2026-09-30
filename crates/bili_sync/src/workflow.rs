@@ -408,7 +408,14 @@ pub async fn download_video_pages(
     let rendered_video_name = cx
         .template
         .path_safe_render("video", &video_format_args(&video_model, &cx.config.time_format))?;
-    let video_name = Path::new(&rendered_video_name)
+    let rendered_path = Path::new(&rendered_video_name);
+    let target_dir = match rendered_path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => base_path.join(p),
+        _ => base_path.clone(),
+    };
+    fs::create_dir_all(&target_dir).await?;
+
+    let video_name = rendered_path
         .file_name()
         .context("video_name 模板未生成有效文件名")?
         .to_string_lossy()
@@ -438,15 +445,15 @@ pub async fn download_video_pages(
         fetch_video_poster(
             separate_status[0] && !is_single_page && !cx.config.skip_option.no_poster,
             &video_model,
-            base_path.join(format!("{}-poster.jpg", video_name)),
-            base_path.join(format!("{}-fanart.jpg", video_name)),
+            target_dir.join(format!("{}-poster.jpg", video_name)),
+            target_dir.join(format!("{}-fanart.jpg", video_name)),
             cx
         ),
         // 生成视频信息的 nfo
         generate_video_nfo(
             separate_status[1] && !is_single_page && !cx.config.skip_option.no_video_nfo,
             &video_model,
-            base_path.join(format!("{}.tvshow.nfo", video_name)),
+            target_dir.join(format!("{}.tvshow.nfo", video_name)),
             cx
         ),
         // 下载 Up 主头像
@@ -569,7 +576,14 @@ pub async fn download_page(
     let rendered_video_name = cx
         .template
         .path_safe_render("video", &page_format_args(video_model, &page_model, &cx.config.time_format))?;
-    let base_name = Path::new(&rendered_video_name)
+    let rendered_path = Path::new(&rendered_video_name);
+    let target_dir = match rendered_path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => base_path.join(p),
+        _ => base_path.to_path_buf(),
+    };
+    fs::create_dir_all(&target_dir).await?;
+
+    let base_name = rendered_path
         .file_name()
         .context("video_name 模板未生成有效文件名")?
         .to_string_lossy()
@@ -581,13 +595,13 @@ pub async fn download_page(
     };
     let video_extension = "mp4";
     let (poster_path, video_path, audio_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = (
-        base_path.join(format!("{}-poster.jpg", page_name)),
-        base_path.join(format!("{}.{}", page_name, video_extension)),
-        (audio_only || save_audio).then(|| base_path.join(format!("{}.m4a", page_name))),
-        base_path.join(format!("{}.nfo", page_name)),
-        base_path.join(format!("{}.zh-CN.default.ass", page_name)),
-        is_single_page.then(|| base_path.join(format!("{}-fanart.jpg", page_name))),
-        base_path.join(format!("{}.srt", page_name)),
+        target_dir.join(format!("{}-poster.jpg", page_name)),
+        target_dir.join(format!("{}.{}", page_name, video_extension)),
+        (audio_only || save_audio).then(|| target_dir.join(format!("{}.m4a", page_name))),
+        target_dir.join(format!("{}.nfo", page_name)),
+        target_dir.join(format!("{}.zh-CN.default.ass", page_name)),
+        is_single_page.then(|| target_dir.join(format!("{}-fanart.jpg", page_name))),
+        target_dir.join(format!("{}.srt", page_name)),
     );
     let media_path = if audio_only {
         audio_path.clone().unwrap_or(video_path.clone())
