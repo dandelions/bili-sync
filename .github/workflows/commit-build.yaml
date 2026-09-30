@@ -1,11 +1,66 @@
-name: Build Main Binary
+name: Build Main Binary And Docker Image
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-binary:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-    uses: amtoaer/bili-sync/.github/workflows/build-binary.yaml@main
+    uses: ./.github/workflows/build-binary.yaml
+
+  docker-build:
+    name: Build and Push Docker Image
+    needs: build-binary
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      - name: Download release artifact
+        uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+
+      - name: Docker Meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/bili-sync-rs
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          platforms: |
+            linux/amd64
+            linux/arm64
+            linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha, scope=${{ github.workflow }}
+          cache-to: type=gha, scope=${{ github.workflow }}
+
