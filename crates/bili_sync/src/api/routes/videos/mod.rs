@@ -274,6 +274,8 @@ async fn remove_page_files(path: &FsPath) -> Result<()> {
     let mut paths = vec![path.to_path_buf()];
     paths.push(path.with_extension("mp4"));
     paths.push(path.with_extension("m4a"));
+    paths.push(path.with_extension("mp3"));
+    paths.push(path.with_extension("m4b"));
     paths.push(path.with_file_name(format!(
         "{}-poster.jpg",
         path.file_stem().unwrap_or_default().to_string_lossy()

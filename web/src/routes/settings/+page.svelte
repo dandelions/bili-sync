@@ -27,7 +27,12 @@
 	let loading = false;
 
 	function normalizeFilterOption(option: Config['filter_option']): Config['filter_option'] {
-		return { ...option, audio_only: option.audio_only ?? false, save_audio: option.save_audio ?? false };
+		return {
+			...option,
+			audio_only: option.audio_only ?? false,
+			save_audio: option.save_audio ?? false,
+			audio_format: option.audio_format ?? 'm4a'
+		};
 	}
 
 	let intervalInput: string = '1200';

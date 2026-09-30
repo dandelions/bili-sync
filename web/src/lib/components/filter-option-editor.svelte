@@ -17,14 +17,17 @@
 			bind:checked={value.audio_only}
 			onCheckedChange={(checked) => {
 				value.audio_only = checked;
-				if (checked) value.save_audio = false;
+				if (checked) {
+					value.save_audio = false;
+					value.audio_format = value.audio_format ?? 'm4a';
+				}
 			}}
 			{disabled}
 		/>
 		<Label for="audio-only">仅下载音频</Label>
 	</div>
 	<p class="text-muted-foreground text-sm">
-		开启后只保存 M4A 音频文件；没有独立音频流时，会下载混合流后由 ffmpeg 提取音频。
+		开启后只保存音频文件；没有独立音频流时，会下载混合流后由 ffmpeg 提取或转码音频。
 	</p>
 	<div class="flex items-center space-x-2">
 		<Switch
@@ -32,15 +35,36 @@
 			bind:checked={value.save_audio}
 			onCheckedChange={(checked) => {
 				value.save_audio = checked;
-				if (checked) value.audio_only = false;
+				if (checked) {
+					value.audio_only = false;
+					value.audio_format = value.audio_format ?? 'm4a';
+				}
 			}}
 			{disabled}
 		/>
 		<Label for="save-audio">同时保存视频和音频</Label>
 	</div>
 	<p class="text-muted-foreground text-sm">
-		开启后保存视频文件，并在视频目录的 Audio 子目录中保存对应的 M4A 音频文件。
+		开启后保存视频文件，并同时生成对应的音频文件。
 	</p>
+	{#if value.audio_only || value.save_audio}
+		<div class="space-y-2 rounded-lg border p-4">
+			<Label for="audio-format">音频保存格式</Label>
+			<select
+				id="audio-format"
+				class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+				bind:value={value.audio_format}
+				{disabled}
+			>
+				<option value="m4a">M4A (默认，无损封装)</option>
+				<option value="mp3">MP3 (ffmpeg 转码兼容格式)</option>
+				<option value="m4b">M4B (音频书/标记格式)</option>
+			</select>
+			<p class="text-muted-foreground text-xs">
+				选择下载音频或保存音频副本时的文件后缀。若选择 MP3，将自动使用 ffmpeg (libmp3lame) 进行转码。
+			</p>
+		</div>
+	{/if}
 	<div class="space-y-4">
 		<Label>流质量过滤</Label>
 		<p class="text-muted-foreground text-sm">

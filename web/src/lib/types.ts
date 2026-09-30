@@ -226,11 +226,14 @@ export interface InsertSubmissionRequest {
 
 export type NormalVideoDownloadMode = 'video' | 'audio' | 'video_audio';
 
+export type AudioFormat = 'm4a' | 'mp3' | 'm4b';
+
 export interface InsertNormalVideoRequest {
 	video: string;
 	path: string;
 	downloadMode: NormalVideoDownloadMode;
 	videoName?: string;
+	audioFormat?: AudioFormat;
 }
 
 export interface Condition<T> {
@@ -292,6 +295,7 @@ export interface FilterOption {
 	codecs: string[];
 	audio_only: boolean;
 	save_audio: boolean;
+	audio_format?: AudioFormat;
 	no_dolby_video: boolean;
 	no_dolby_audio: boolean;
 	no_hdr: boolean;

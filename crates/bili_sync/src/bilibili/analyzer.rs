@@ -54,7 +54,7 @@ impl AudioQuality {
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(
-    Debug, strum::EnumString, strum::Display, strum::AsRefStr, PartialEq, PartialOrd, Serialize, Deserialize, Clone,
+    Debug, strum::EnumString, strum::Display, strum::AsRefStr, PartialEq, Eq, PartialOrd, Serialize, Deserialize, Clone,
 )]
 pub enum VideoCodecs {
     #[strum(serialize = "hev")]
@@ -79,8 +79,43 @@ impl TryFrom<u64> for VideoCodecs {
     }
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Serialize,
+    Deserialize,
+    strum::Display,
+    strum::EnumString,
+    strum::AsRefStr,
+)]
+#[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
+pub enum AudioFormat {
+    #[default]
+    #[strum(serialize = "m4a")]
+    M4a,
+    #[strum(serialize = "mp3")]
+    Mp3,
+    #[strum(serialize = "m4b")]
+    M4b,
+}
+
+impl AudioFormat {
+    pub fn extension(&self) -> &'static str {
+        match self {
+            Self::M4a => "m4a",
+            Self::Mp3 => "mp3",
+            Self::M4b => "m4b",
+        }
+    }
+}
+
 // 视频流的筛选偏好
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FilterOption {
     pub video_max_quality: VideoQuality,
     pub video_min_quality: VideoQuality,
@@ -91,6 +126,8 @@ pub struct FilterOption {
     pub audio_only: bool,
     #[serde(default)]
     pub save_audio: bool,
+    #[serde(default)]
+    pub audio_format: AudioFormat,
     pub no_dolby_video: bool,
     pub no_dolby_audio: bool,
     pub no_hdr: bool,
@@ -107,6 +144,7 @@ impl Default for FilterOption {
             codecs: vec![VideoCodecs::AVC, VideoCodecs::HEV, VideoCodecs::AV1],
             audio_only: false,
             save_audio: false,
+            audio_format: AudioFormat::M4a,
             no_dolby_video: false,
             no_dolby_audio: false,
             no_hdr: false,
@@ -532,6 +570,55 @@ mod tests {
                 _ => unreachable!(),
             }
         }
+    }
+
+    #[test]
+    fn test_audio_format_serde_and_default() {
+        let default_format: AudioFormat = serde_json::from_str(r#""m4a""#).expect("deserialization should succeed");
+        assert_eq!(default_format, AudioFormat::M4a);
+        assert_eq!(default_format.extension(), "m4a");
+
+        let mp3_format: AudioFormat = serde_json::from_str(r#""mp3""#).expect("deserialization should succeed");
+        assert_eq!(mp3_format, AudioFormat::Mp3);
+        assert_eq!(mp3_format.extension(), "mp3");
+
+        let m4b_format: AudioFormat = serde_json::from_str(r#""m4b""#).expect("deserialization should succeed");
+        assert_eq!(m4b_format, AudioFormat::M4b);
+        assert_eq!(m4b_format.extension(), "m4b");
+
+        let serialized = serde_json::to_string(&AudioFormat::Mp3).expect("serialization should succeed");
+        assert_eq!(serialized, r#""mp3""#);
+
+        // 测试 FilterOption 反序列化时若省略 audio_format，自动使用默认值 M4a
+        let json_without_audio_format = serde_json::json!({
+            "video_max_quality": "Quality8k",
+            "video_min_quality": "Quality360p",
+            "audio_max_quality": "QualityHiRES",
+            "audio_min_quality": "Quality64k",
+            "codecs": ["AVC"],
+            "no_dolby_video": false,
+            "no_dolby_audio": false,
+            "no_hdr": false,
+            "no_hires": false
+        });
+        let opt: FilterOption = serde_json::from_value(json_without_audio_format).expect("deserialization should succeed");
+        assert_eq!(opt.audio_format, AudioFormat::M4a);
+
+        // 测试提供自定义 audio_format
+        let json_with_mp3 = serde_json::json!({
+            "video_max_quality": "Quality8k",
+            "video_min_quality": "Quality360p",
+            "audio_max_quality": "QualityHiRES",
+            "audio_min_quality": "Quality64k",
+            "codecs": ["AVC"],
+            "audio_format": "mp3",
+            "no_dolby_video": false,
+            "no_dolby_audio": false,
+            "no_hdr": false,
+            "no_hires": false
+        });
+        let opt_mp3: FilterOption = serde_json::from_value(json_with_mp3).expect("deserialization should succeed");
+        assert_eq!(opt_mp3.audio_format, AudioFormat::Mp3);
     }
 
     #[test]

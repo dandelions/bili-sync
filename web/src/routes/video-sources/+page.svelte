@@ -29,6 +29,7 @@
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type {
 		ApiError,
+		AudioFormat,
 		FilterOption,
 		NormalVideoDownloadMode,
 		VideoSourceDetail,
@@ -66,7 +67,8 @@
 		return {
 			...option,
 			audio_only: option.audio_only ?? false,
-			save_audio: option.save_audio ?? false
+			save_audio: option.save_audio ?? false,
+			audio_format: option.audio_format ?? 'm4a'
 		};
 	}
 
@@ -121,11 +123,13 @@
 		path: string;
 		videoName: string;
 		downloadMode: NormalVideoDownloadMode;
+		audioFormat: AudioFormat;
 	} = {
 		video: '',
 		path: '',
 		videoName: '',
-		downloadMode: 'video'
+		downloadMode: 'video',
+		audioFormat: 'm4a'
 	};
 
 	const TAB_CONFIG = {
@@ -372,7 +376,7 @@
 		favoriteForm = { fid: '', path: '' };
 		collectionForm = { sid: '', mid: '', collection_type: '2', path: '' };
 		submissionForm = { upper_id: '', path: '' };
-		normalVideoForm = { video: '', path: '', videoName: '', downloadMode: 'video' };
+		normalVideoForm = { video: '', path: '', videoName: '', downloadMode: 'video', audioFormat: 'm4a' };
 		showAddDialog = true;
 	}
 
@@ -993,8 +997,23 @@
 								<option value="audio">仅音频</option>
 								<option value="video_audio">视频和音频</option>
 							</select>
-							<p class="text-muted-foreground mt-1 text-xs">默认下载视频；音频文件保存为 M4A。</p>
+							<p class="text-muted-foreground mt-1 text-xs">默认下载视频；支持同时或单独保存音频。</p>
 						</div>
+						{#if normalVideoForm.downloadMode === 'audio' || normalVideoForm.downloadMode === 'video_audio'}
+							<div>
+								<Label for="normal-video-audio-format" class="text-sm font-medium">音频保存格式</Label>
+								<select
+									id="normal-video-audio-format"
+									bind:value={normalVideoForm.audioFormat}
+									class="border-input bg-background ring-offset-background focus-visible:ring-ring mt-1 flex h-10 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+								>
+									<option value="m4a">M4A (默认，无损封装)</option>
+									<option value="mp3">MP3 (ffmpeg 转码兼容格式)</option>
+									<option value="m4b">M4B (音频书/标记格式)</option>
+								</select>
+								<p class="text-muted-foreground mt-1 text-xs">若选择 MP3，将通过 ffmpeg 自动转码。</p>
+							</div>
+						{/if}
 						<div>
 							<VideoNameTemplateSelector
 								id="normal-video-name"

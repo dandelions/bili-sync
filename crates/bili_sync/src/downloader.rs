@@ -86,30 +86,55 @@ impl Downloader {
 
     async fn remux_audio(&self, source_path: &Path, path: &Path) -> Result<()> {
         let final_temp_file = TempFile::new().await?;
-        let output = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"))
-            .args([
-                "-i",
-                source_path.to_string_lossy().as_ref(),
-                "-map",
-                "0:a:0",
-                "-vn",
-                "-c:a",
-                "copy",
-                "-movflags",
-                "faststart",
-                "-f",
-                "mp4",
-                "-y",
-                final_temp_file.file_path().to_string_lossy().as_ref(),
-            ])
-            .output()
-            .await
-            .context("failed to run ffmpeg for audio remux")?;
+        let is_mp3 = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mp3"));
+        let mut cmd = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"));
+        cmd.args(["-i", source_path.to_string_lossy().as_ref(), "-map", "0:a:0", "-vn"]);
+        if is_mp3 {
+            cmd.args(["-c:a", "libmp3lame", "-q:a", "2", "-f", "mp3"]);
+        } else {
+            cmd.args(["-c:a", "copy", "-movflags", "faststart", "-f", "mp4"]);
+        }
+        cmd.args(["-y", final_temp_file.file_path().to_string_lossy().as_ref()]);
+
+        let output = cmd.output().await.context("failed to run ffmpeg for audio remux")?;
         if !output.status.success() {
-            bail!(
-                "ffmpeg audio remux error: {}",
-                str::from_utf8(&output.stderr).unwrap_or("unknown")
-            );
+            if !is_mp3 {
+                // 如果 copy 失败（如源音频格式不兼容 mp4 容器），降级转码为 aac
+                let mut fallback_cmd = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"));
+                fallback_cmd.args([
+                    "-i",
+                    source_path.to_string_lossy().as_ref(),
+                    "-map",
+                    "0:a:0",
+                    "-vn",
+                    "-c:a",
+                    "aac",
+                    "-q:a",
+                    "2",
+                    "-f",
+                    "ipod",
+                    "-y",
+                    final_temp_file.file_path().to_string_lossy().as_ref(),
+                ]);
+                let fallback_output = fallback_cmd
+                    .output()
+                    .await
+                    .context("failed to run fallback ffmpeg for audio remux")?;
+                if !fallback_output.status.success() {
+                    bail!(
+                        "ffmpeg audio remux error: {}",
+                        str::from_utf8(&fallback_output.stderr).unwrap_or("unknown")
+                    );
+                }
+            } else {
+                bail!(
+                    "ffmpeg audio remux error: {}",
+                    str::from_utf8(&output.stderr).unwrap_or("unknown")
+                );
+            }
         }
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
@@ -121,25 +146,20 @@ impl Downloader {
 
     pub async fn extract_audio(&self, source_path: &Path, path: &Path) -> Result<()> {
         let final_temp_file = TempFile::new().await?;
-        let output = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"))
-            .args([
-                "-i",
-                source_path.to_string_lossy().as_ref(),
-                "-map",
-                "0:a:0",
-                "-vn",
-                "-c:a",
-                "aac",
-                "-q:a",
-                "2",
-                "-f",
-                "ipod",
-                "-y",
-                final_temp_file.file_path().to_string_lossy().as_ref(),
-            ])
-            .output()
-            .await
-            .context("failed to run ffmpeg for audio")?;
+        let is_mp3 = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mp3"));
+        let mut cmd = Command::new(ARGS.ffmpeg_path.as_deref().unwrap_or("ffmpeg"));
+        cmd.args(["-i", source_path.to_string_lossy().as_ref(), "-map", "0:a:0", "-vn"]);
+        if is_mp3 {
+            cmd.args(["-c:a", "libmp3lame", "-q:a", "2", "-f", "mp3"]);
+        } else {
+            cmd.args(["-c:a", "aac", "-q:a", "2", "-f", "ipod"]);
+        }
+        cmd.args(["-y", final_temp_file.file_path().to_string_lossy().as_ref()]);
+
+        let output = cmd.output().await.context("failed to run ffmpeg for audio")?;
         if !output.status.success() {
             bail!(
                 "ffmpeg audio error: {}",

@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-use crate::bilibili::{CollectionType, FilterOption};
+use crate::bilibili::{AudioFormat, CollectionType, FilterOption};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -167,6 +167,7 @@ pub struct InsertNormalVideoRequest {
     #[serde(default)]
     pub download_mode: NormalVideoDownloadMode,
     pub video_name: Option<String>,
+    pub audio_format: Option<AudioFormat>,
 }
 
 #[derive(Deserialize, Validate)]

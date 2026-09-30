@@ -33,6 +33,9 @@ pub async fn insert_normal_video(
     let mut filter_option = VersionedConfig::get().read().filter_option.clone();
     filter_option.audio_only = matches!(request.download_mode, NormalVideoDownloadMode::Audio);
     filter_option.save_audio = matches!(request.download_mode, NormalVideoDownloadMode::VideoAudio);
+    if let Some(audio_format) = request.audio_format {
+        filter_option.audio_format = audio_format;
+    }
     let video_name = request
         .video_name
         .map(|s| s.trim().to_string())

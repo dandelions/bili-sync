@@ -594,10 +594,11 @@ pub async fn download_page(
         format!("{} - P{:0>2}", base_name, page_model.pid)
     };
     let video_extension = "mp4";
+    let audio_extension = cx.filter_option.audio_format.extension();
     let (poster_path, video_path, audio_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = (
         target_dir.join(format!("{}-poster.jpg", page_name)),
         target_dir.join(format!("{}.{}", page_name, video_extension)),
-        (audio_only || save_audio).then(|| target_dir.join(format!("{}.m4a", page_name))),
+        (audio_only || save_audio).then(|| target_dir.join(format!("{}.{}", page_name, audio_extension))),
         target_dir.join(format!("{}.nfo", page_name)),
         target_dir.join(format!("{}.zh-CN.default.ass", page_name)),
         is_single_page.then(|| target_dir.join(format!("{}-fanart.jpg", page_name))),
@@ -612,6 +613,7 @@ pub async fn download_page(
         path.extension()
             .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
     });
+    let legacy_media_path = page_model.path.as_deref().map(PathBuf::from);
     let saved_audio_path = audio_path.as_deref().filter(|_| save_audio);
     let download_audio_path = audio_path.as_deref().filter(|_| audio_only || save_audio);
     let dimension = match (page_model.width, page_model.height) {
@@ -711,17 +713,17 @@ pub async fn download_page(
         }
     }
     if audio_only {
-        for stale_video_path in [Some(video_path.clone()), legacy_video_path]
+        for stale_path in [Some(video_path.clone()), legacy_video_path, legacy_media_path]
             .into_iter()
             .flatten()
             .filter(|path| path != &media_path)
         {
-            if let Err(error) = fs::remove_file(&stale_video_path).await
+            if let Err(error) = fs::remove_file(&stale_path).await
                 && error.kind() != std::io::ErrorKind::NotFound
             {
                 warn!(
-                    "清理纯音频模式下的旧视频文件失败 {}: {}",
-                    stale_video_path.display(),
+                    "清理纯音频模式下的旧文件失败 {}: {}",
+                    stale_path.display(),
                     error
                 );
             }
