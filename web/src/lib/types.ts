@@ -234,6 +234,7 @@ export interface InsertNormalVideoRequest {
 	downloadMode: NormalVideoDownloadMode;
 	videoName?: string;
 	audioFormat?: AudioFormat;
+	enabled?: boolean;
 }
 
 export interface Condition<T> {

@@ -168,6 +168,7 @@ pub struct InsertNormalVideoRequest {
     pub download_mode: NormalVideoDownloadMode,
     pub video_name: Option<String>,
     pub audio_format: Option<AudioFormat>,
+    pub enabled: Option<bool>,
 }
 
 #[derive(Deserialize, Validate)]
