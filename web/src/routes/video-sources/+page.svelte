@@ -42,12 +42,34 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import FilterOptionEditor from '$lib/components/filter-option-editor.svelte';
 	import VideoNameTemplateSelector from '$lib/components/video-name-template-selector.svelte';
+	import DownloadPathSelector from '$lib/components/download-path-selector.svelte';
 
 	let videoSourcesData: VideoSourcesDetailsResponse | null = null;
 	let loading = false;
 	let activeTab = 'favorites';
 	let globalFilterOption: FilterOption | null = null;
 	let globalVideoName = '';
+
+	let allExistingPaths: string[] = [];
+	$: {
+		if (!videoSourcesData) {
+			allExistingPaths = [];
+		} else {
+			const set = new Set<string>();
+			const sources = [
+				...(videoSourcesData.favorites || []),
+				...(videoSourcesData.collections || []),
+				...(videoSourcesData.submissions || []),
+				...(videoSourcesData.normal_videos || [])
+			];
+			for (const s of sources) {
+				if (s.path && s.path.trim()) {
+					set.add(s.path.trim());
+				}
+			}
+			allExistingPaths = Array.from(set);
+		}
+	}
 
 	// 添加对话框状态
 	let showAddDialog = false;
@@ -733,13 +755,11 @@
 			<div class="mt-6 space-y-6">
 				<!-- 下载路径 -->
 				<div>
-					<Label for="edit-path" class="text-sm font-medium">下载路径</Label>
-					<Input
+					<DownloadPathSelector
 						id="edit-path"
-						type="text"
 						bind:value={editForm.path}
+						existingPaths={allExistingPaths}
 						placeholder="请输入下载路径，例如：/path/to/download"
-						class="mt-2"
 					/>
 				</div>
 
@@ -1035,38 +1055,33 @@
 					</div>
 				{/if}
 				<div class="mt-4">
-					<Label for="path" class="text-sm font-medium">下载路径</Label>
 					{#if addDialogType === 'favorites'}
-						<Input
+						<DownloadPathSelector
 							id="path"
-							type="text"
 							bind:value={favoriteForm.path}
+							existingPaths={allExistingPaths}
 							placeholder="请输入下载路径，例如：/path/to/download"
-							class="mt-1"
 						/>
 					{:else if addDialogType === 'collections'}
-						<Input
+						<DownloadPathSelector
 							id="path"
-							type="text"
 							bind:value={collectionForm.path}
+							existingPaths={allExistingPaths}
 							placeholder="请输入下载路径，例如：/path/to/download"
-							class="mt-1"
 						/>
 					{:else if addDialogType === 'submissions'}
-						<Input
+						<DownloadPathSelector
 							id="path"
-							type="text"
 							bind:value={submissionForm.path}
+							existingPaths={allExistingPaths}
 							placeholder="请输入下载路径，例如：/path/to/download"
-							class="mt-1"
 						/>
 					{:else}
-						<Input
+						<DownloadPathSelector
 							id="path"
-							type="text"
 							bind:value={normalVideoForm.path}
+							existingPaths={allExistingPaths}
 							placeholder="请输入下载路径，例如：/path/to/download"
-							class="mt-1"
 						/>
 					{/if}
 				</div>
