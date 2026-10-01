@@ -17,7 +17,7 @@ pub struct Video<'a> {
     credential: &'a Credential,
 }
 
-#[derive(Debug, serde::Deserialize, Default)]
+#[derive(Debug, serde::Deserialize, Default, Clone)]
 pub struct PageInfo {
     pub cid: i64,
     pub page: i32,
@@ -28,7 +28,7 @@ pub struct PageInfo {
     pub dimension: Option<Dimension>,
 }
 
-#[derive(Debug, serde::Deserialize, Default)]
+#[derive(Debug, serde::Deserialize, Default, Clone)]
 pub struct Dimension {
     pub width: u32,
     pub height: u32,
