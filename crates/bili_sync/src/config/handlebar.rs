@@ -17,6 +17,7 @@ fn create_template(config: &Config) -> Result<handlebars::Handlebars<'static>> {
 pub fn create_template_with_video_name(config: &Config, video_name: &str) -> Result<handlebars::Handlebars<'static>> {
     let mut handlebars = handlebars::Handlebars::new();
     handlebars.register_helper("truncate", Box::new(TruncateHelper));
+    handlebars.register_helper("pad", Box::new(PadHelper));
     handlebars.path_safe_register("video", video_name.to_owned())?;
     handlebars.path_safe_register("page", config.page_name.clone())?;
     handlebars.path_safe_register("favorite_default_path", config.favorite_default_path.clone())?;
@@ -173,6 +174,42 @@ fn parse_truncate_params(h: &Helper<'_>, total_chars: usize) -> (usize, Option<u
     (0, None)
 }
 
+#[derive(Clone, Copy)]
+pub struct PadHelper;
+
+impl HelperDef for PadHelper {
+    fn call<'reg: 'rc, 'rc>(
+        &self,
+        h: &Helper<'rc>,
+        _: &'reg Handlebars<'reg>,
+        _: &'rc Context,
+        _: &mut RenderContext<'reg, 'rc>,
+        out: &mut dyn Output,
+    ) -> HelperResult {
+        let val_str = match h.param(0) {
+            Some(v) => match v.value() {
+                serde_json::Value::Number(n) => n.to_string(),
+                serde_json::Value::String(s) => s.clone(),
+                _ => String::new(),
+            },
+            None => String::new(),
+        };
+        let width = h
+            .param(1)
+            .and_then(|v| v.value().as_i64())
+            .or_else(|| h.hash_get("width").and_then(|v| v.value().as_i64()))
+            .unwrap_or(2)
+            .max(1) as usize;
+        let prefix = h
+            .hash_get("prefix")
+            .and_then(|v| v.value().as_str())
+            .unwrap_or("");
+        let padded = format!("{}{:0>width$}", prefix, val_str, width = width);
+        out.write(&padded)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -261,6 +298,24 @@ mod tests {
         assert_eq!(
             template.path_safe_render("test_truncate_len_start", &test_title).unwrap(),
             "真实标题"
+        );
+
+        // pad helper 测试
+        template.register_helper("pad", Box::new(PadHelper));
+        let _ = template.path_safe_register("test_pad_default", "{{ pad pid }}");
+        let _ = template.path_safe_register("test_pad_3", "{{ pad pid 3 }}");
+        let _ = template.path_safe_register("test_pad_prefix", "{{ pad pid 2 prefix=\"P\" }}");
+        assert_eq!(
+            template.path_safe_render("test_pad_default", &json!({"pid": 1})).unwrap(),
+            "01"
+        );
+        assert_eq!(
+            template.path_safe_render("test_pad_3", &json!({"pid": 5})).unwrap(),
+            "005"
+        );
+        assert_eq!(
+            template.path_safe_render("test_pad_prefix", &json!({"pid": 2})).unwrap(),
+            "P02"
         );
     }
 }

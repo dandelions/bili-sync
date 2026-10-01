@@ -42,6 +42,11 @@
 
 	const PRESET_TEMPLATES = [
 		{ template: '{{title}}', label: '默认标题' },
+		{ template: '{{title}}/{{pid_pad}} - {{ptitle}}', label: '多P：01 - 分P标题（序号在前）' },
+		{ template: '{{title}}/{{ptitle}} - {{pid_pad}}', label: '多P：分P标题 - 01（序号在后）' },
+		{ template: '{{title}}/{{P_pad}} - {{ptitle}}', label: '多P：P01 - 分P标题（P01在前）' },
+		{ template: '{{title}}/{{ptitle}} - {{P_pad}}', label: '多P：分P标题 - P01（P01在后）' },
+		{ template: '{{title}}/{{p_pad_lower}} - {{ptitle}}', label: '多P：p01 - 分P标题（p01在前）' },
 		{ template: '{{title}}/{{ptitle}}', label: '标题目录/分页标题' },
 		{ template: '{{title}} - {{ptitle}}', label: '标题 - 分页标题' },
 		{ template: '{{truncate title 10}}', label: '截取前10个字符' },
@@ -54,8 +59,11 @@
 
 	const VARIABLES = [
 		{ name: 'title', label: '视频标题' },
-		{ name: 'ptitle', label: '分页标题' },
-		{ name: 'pid', label: '分页序号' },
+		{ name: 'ptitle', label: '分P标题' },
+		{ name: 'pid_pad', label: '分P补零(01)' },
+		{ name: 'P_pad', label: '分PP补零(P01)' },
+		{ name: 'p_pad_lower', label: '分Pp补零(p01)' },
+		{ name: 'pid', label: '分P数字(1)' },
 		{ name: 'pubtime', label: '发布时间' },
 		{ name: 'upper_name', label: 'UP主名称' },
 		{ name: 'upper_mid', label: 'UP主ID' },

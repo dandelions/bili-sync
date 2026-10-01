@@ -560,6 +560,19 @@ pub async fn dispatch_download_page(
 }
 
 /// 下载某个分页，未发生风控且正常运行时返回 Ok(Page::ActiveModel)，其中 status 字段存储了新的下载状态，发生风控时返回 DownloadAbortError
+fn has_explicit_page_marker(template_str: &str) -> bool {
+    let markers = [
+        "pid",
+        "pid_pad",
+        "p_pad",
+        "page_pad",
+        "P_pad",
+        "p_pad_lower",
+        "pad",
+    ];
+    markers.iter().any(|&m| template_str.contains(m))
+}
+
 pub async fn download_page(
     video_model: &video::Model,
     page_model: page::Model,
@@ -588,7 +601,8 @@ pub async fn download_page(
         .context("video_name 模板未生成有效文件名")?
         .to_string_lossy()
         .to_string();
-    let page_name = if is_single_page {
+    let video_name_template = cx.video_source.video_name().unwrap_or(&cx.config.video_name);
+    let page_name = if is_single_page || has_explicit_page_marker(video_name_template) {
         base_name.clone()
     } else {
         format!("{} - P{:0>2}", base_name, page_model.pid)

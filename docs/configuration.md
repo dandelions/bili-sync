@@ -42,9 +42,22 @@
 
 这两个模板参数会在运行时解析，其中用 <code v-pre>{{  }}</code> 包裹的模板变量会被动态替换为对应的内容。
 
-对于 `video_name`，支持设置 bvid（视频编号）、title（视频标题）、upper_name（up 主名称）、upper_mid（up 主 id）、pubtime（视频发布时间）、fav_time（视频收藏时间）、ptitle（分 P 标题，单 P 视频时回退为视频标题）、pid（分 P 页号）。
+对于 `video_name`，支持设置 bvid（视频编号）、title（视频标题）、upper_name（up 主名称）、upper_mid（up 主 id）、pubtime（视频发布时间）、fav_time（视频收藏时间）、ptitle（分 P 标题，单 P 视频时回退为视频标题）、pid（分 P 页号）、pid_pad（分 P 序号补零，如 01、02）、P_pad（大写前缀补零，如 P01、P02）、p_pad_lower（小写前缀补零，如 p01、p02）。
 
-对于 `page_name`，除支持 video 的全部参数外，同样支持 ptitle（分 P 标题）、pid（分 P 页号）。
+对于多 P 视频，支持自由排列分 P 序号与标题的前后顺序：
+- 序号在前：<code v-pre>{{ title }}/{{ pid_pad }} - {{ ptitle }}</code>（渲染为 `01 - 分P标题`）
+- 序号在后：<code v-pre>{{ title }}/{{ ptitle }} - {{ pid_pad }}</code>（渲染为 `分P标题 - 01`）
+- 带 P 在前：<code v-pre>{{ title }}/{{ P_pad }} - {{ ptitle }}</code>（渲染为 `P01 - 分P标题`）
+- 带 P 在后：<code v-pre>{{ title }}/{{ ptitle }} - {{ P_pad }}</code>（渲染为 `分P标题 - P01`）
+- 小写 p 在前：<code v-pre>{{ title }}/{{ p_pad_lower }} - {{ ptitle }}</code>（渲染为 `p01 - 分P标题`）
+- 当模板中显式包含上述分 P 序号标记时，系统将完全尊重您定制的文件名格式，不再在末尾强制重复拼接 `- P01`。
+
+对于 `page_name`，除支持 video 的全部参数外，同样支持 ptitle（分 P 标题）、pid（分 P 页号）、pid_pad、P_pad、p_pad_lower 等。
+
+此外还支持补零函数 `pad`：
+- <code v-pre>{{ pad pid 2 }}</code>：补零到 2 位（如 `01`）；
+- <code v-pre>{{ pad pid 3 }}</code>：补零到 3 位（如 `001`）；
+- <code v-pre>{{ pad pid 2 prefix="P" }}</code>：指定前缀补零（如 `P01`）。
 
 为了解决文件名过长或提取标题核心内容的需求，程序为模板引入了增强的 `truncate` 函数：
 - <code v-pre>{{ truncate title 10 }}</code>：截取 `title` 的前 10 个字符；
