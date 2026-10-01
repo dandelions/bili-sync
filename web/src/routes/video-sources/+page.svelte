@@ -153,7 +153,7 @@
 		videoName: '',
 		downloadMode: 'video',
 		audioFormat: 'm4a',
-		enabled: true
+		enabled: false
 	};
 
 	const TAB_CONFIG = {
@@ -406,7 +406,7 @@
 			videoName: '',
 			downloadMode: 'video',
 			audioFormat: 'm4a',
-			enabled: true
+			enabled: false
 		};
 		showAddDialog = true;
 	}

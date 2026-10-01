@@ -40,7 +40,7 @@ pub async fn insert_normal_video(
         .video_name
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let enabled = request.enabled.unwrap_or(true);
+    let enabled = request.enabled.unwrap_or(false);
     normal_video::Entity::insert(normal_video::ActiveModel {
         bvid: Set(bvid),
         name: Set(title),
