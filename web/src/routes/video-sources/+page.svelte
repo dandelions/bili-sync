@@ -1032,15 +1032,6 @@
 								description="留空则使用全局默认模板。"
 							/>
 						</div>
-						<div class="rounded-lg border p-3">
-							<div class="flex items-center space-x-2">
-								<Switch id="normal-video-enabled" bind:checked={normalVideoForm.enabled} />
-								<Label for="normal-video-enabled" class="text-sm font-medium">启用此视频源（定时自动更新扫描）</Label>
-							</div>
-							<p class="text-muted-foreground mt-1 text-xs">
-								启用后与合集一样，纳入后台定时任务周期性扫描更新（若 UP 主追加新分 P 将自动检测并下载）。
-							</p>
-						</div>
 					</div>
 				{/if}
 				<div class="mt-4">
