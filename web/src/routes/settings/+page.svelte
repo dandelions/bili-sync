@@ -37,6 +37,54 @@
 
 	let intervalInput: string = '1200';
 
+	const INTERVAL_PRESETS = [
+		{ label: '每 10 分钟', value: '600' },
+		{ label: '每 20 分钟', value: '1200' },
+		{ label: '每 30 分钟', value: '1800' },
+		{ label: '每 1 小时', value: '3600' },
+		{ label: '每 2 小时', value: '7200' },
+		{ label: '每天 02:00', value: '0 0 2 * * *' },
+		{ label: '每天 04:00', value: '0 0 4 * * *' }
+	];
+
+	function getIntervalDescription(input: string): { text: string; isWarning?: boolean } {
+		const trimmed = input.trim();
+		if (!trimmed) {
+			return { text: '请输入间隔秒数或 6 段式 Cron 表达式' };
+		}
+		const asNum = Number(trimmed);
+		if (!isNaN(asNum)) {
+			if (asNum <= 0) {
+				return { text: '间隔秒数必须大于 0', isWarning: true };
+			}
+			if (asNum < 60) {
+				return { text: `当前模式：固定间隔，每 ${asNum} 秒执行一次` };
+			}
+			if (asNum % 3600 === 0) {
+				return { text: `当前模式：固定间隔，每 ${asNum / 3600} 小时执行一次 (${asNum} 秒)` };
+			}
+			if (asNum % 60 === 0) {
+				return { text: `当前模式：固定间隔，每 ${asNum / 60} 分钟执行一次 (${asNum} 秒)` };
+			}
+			const mins = Math.floor(asNum / 60);
+			const secs = asNum % 60;
+			return { text: `当前模式：固定间隔，每 ${mins} 分 ${secs} 秒执行一次 (${asNum} 秒)` };
+		}
+		const parts = trimmed.split(/\s+/);
+		if (parts.length === 5) {
+			return {
+				text: `注意：系统采用 6 段式 Cron（秒 分 时 日 月 周），请在开头补充秒，如 "0 ${trimmed}"`,
+				isWarning: true
+			};
+		}
+		if (parts.length === 6) {
+			return { text: `当前模式：Cron 计划任务模式 (${trimmed})` };
+		}
+		return { text: 'Cron 格式需包含 6 段（秒 分 时 日 月 周）', isWarning: true };
+	}
+
+	$: intervalDescription = getIntervalDescription(intervalInput);
+
 	// Notifier 管理相关
 	let showNotifierDialog = false;
 	let editingNotifier: Notifier | null = null;
@@ -321,16 +369,16 @@
 						</div>
 						<div class="space-y-2">
 							<div class="flex items-center gap-1">
-								<Label for="interval">任务触发条件</Label>
+								<Label for="interval">定时自动下载周期（任务触发条件）</Label>
 								<Tooltip.Root>
 									<Tooltip.Trigger>
 										<InfoIcon class="text-muted-foreground h-3.5 w-3.5" />
 									</Tooltip.Trigger>
 									<Tooltip.Content>
 										<p class="text-xs">
-											视频下载任务的触发条件，支持两种格式：<br />
+											视频下载与自动同步任务的周期触发条件，支持两种格式：<br />
 											1. 输入数字表示间隔秒数，例如 1200 表示每隔 20 分钟触发一次； <br />
-											2. 输入 Cron 表达式，格式为“秒 分 时 日 月 周”，例如“0 0 2 * * *”表示每天凌晨2点触发一次。
+											2. 输入 Cron 表达式，格式为“秒 分 时 日 月 周”，例如“0 0 2 * * *”表示每天凌晨 2 点触发一次。
 										</p>
 									</Tooltip.Content>
 								</Tooltip.Root>
@@ -341,6 +389,25 @@
 								bind:value={intervalInput}
 								placeholder="1200 或 0 0 2 * * *"
 							/>
+							<div class="flex flex-wrap items-center gap-1.5 pt-1">
+								<span class="text-xs text-muted-foreground">快捷预设:</span>
+								{#each INTERVAL_PRESETS as preset}
+									<Button
+										type="button"
+										variant={intervalInput === preset.value ? 'default' : 'outline'}
+										size="sm"
+										class="h-6 px-2 text-xs"
+										onclick={() => {
+											intervalInput = preset.value;
+										}}
+									>
+										{preset.label}
+									</Button>
+								{/each}
+							</div>
+							<p class={`text-xs ${intervalDescription.isWarning ? 'text-amber-500 font-medium' : 'text-muted-foreground'}`}>
+								{intervalDescription.text}
+							</p>
 						</div>
 						<div class="space-y-2">
 							<Label for="video-name">视频名称模板</Label>
