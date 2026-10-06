@@ -54,6 +54,14 @@ impl VideoSource for watch_later::Model {
         self.video_name.as_deref().filter(|s| !s.trim().is_empty())
     }
 
+    fn audio_path(&self) -> Option<&Path> {
+        self.audio_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(Path::new)
+    }
+
     async fn refresh<'a>(
         self,
         bili_client: &'a BiliClient,

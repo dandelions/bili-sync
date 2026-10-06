@@ -596,6 +596,35 @@ pub async fn download_page(
     };
     fs::create_dir_all(&target_dir).await?;
 
+    let audio_target_dir = if save_audio {
+        let configured_audio_base = cx
+            .video_source
+            .audio_path()
+            .or_else(|| {
+                cx.filter_option
+                    .audio_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(Path::new)
+            });
+        if let Some(raw_audio_base) = configured_audio_base {
+            fs::create_dir_all(raw_audio_base).await?;
+            let canonical_audio_base =
+                dunce::canonicalize(raw_audio_base).context("canonicalize audio base path failed")?;
+            let dir = match rendered_path.parent() {
+                Some(p) if !p.as_os_str().is_empty() => canonical_audio_base.join(p),
+                _ => canonical_audio_base,
+            };
+            fs::create_dir_all(&dir).await?;
+            dir
+        } else {
+            target_dir.clone()
+        }
+    } else {
+        target_dir.clone()
+    };
+
     let base_name = rendered_path
         .file_name()
         .context("video_name 模板未生成有效文件名")?
@@ -612,7 +641,13 @@ pub async fn download_page(
     let (poster_path, video_path, audio_path, nfo_path, danmaku_path, fanart_path, subtitle_path) = (
         target_dir.join(format!("{}-poster.jpg", page_name)),
         target_dir.join(format!("{}.{}", page_name, video_extension)),
-        (audio_only || save_audio).then(|| target_dir.join(format!("{}.{}", page_name, audio_extension))),
+        (audio_only || save_audio).then(|| {
+            if save_audio {
+                audio_target_dir.join(format!("{}.{}", page_name, audio_extension))
+            } else {
+                target_dir.join(format!("{}.{}", page_name, audio_extension))
+            }
+        }),
         target_dir.join(format!("{}.nfo", page_name)),
         target_dir.join(format!("{}.zh-CN.default.ass", page_name)),
         is_single_page.then(|| target_dir.join(format!("{}-fanart.jpg", page_name))),

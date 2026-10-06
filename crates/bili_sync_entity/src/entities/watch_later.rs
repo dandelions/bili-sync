@@ -15,6 +15,7 @@ pub struct Model {
     pub rule: Option<Rule>,
     pub filter_option: Option<Json>,
     pub video_name: Option<String>,
+    pub audio_path: Option<String>,
     pub enabled: bool,
 }
 

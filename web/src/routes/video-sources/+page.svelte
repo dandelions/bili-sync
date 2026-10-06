@@ -66,6 +66,9 @@
 				if (s.path && s.path.trim()) {
 					set.add(s.path.trim());
 				}
+				if (s.audioPath && s.audioPath.trim()) {
+					set.add(s.audioPath.trim());
+				}
 			}
 			allExistingPaths = Array.from(set);
 		}
@@ -90,9 +93,21 @@
 			...option,
 			audio_only: option.audio_only ?? false,
 			save_audio: option.save_audio ?? false,
-			audio_format: option.audio_format ?? 'm4a'
+			audio_format: option.audio_format ?? 'm4a',
+			audio_path: option.audio_path ?? null
 		};
 	}
+
+	function isSourceSaveAudio(source: VideoSourceDetail): boolean {
+		return (
+			(source.filterOption ? source.filterOption.save_audio : globalFilterOption?.save_audio) ??
+			false
+		);
+	}
+
+	$: isEditSaveAudio =
+		(useCustomFilterOption ? editFilterOption?.save_audio : globalFilterOption?.save_audio) ??
+		false;
 
 	// 规则评估对话框状态
 	let showEvaluateDialog = false;
@@ -130,6 +145,7 @@
 	// 编辑表单数据
 	let editForm = {
 		path: '',
+		audioPath: '',
 		videoName: '',
 		enabled: false,
 		rule: null as Rule | null,
@@ -143,6 +159,7 @@
 	let normalVideoForm: {
 		video: string;
 		path: string;
+		audioPath: string;
 		videoName: string;
 		downloadMode: NormalVideoDownloadMode;
 		audioFormat: AudioFormat;
@@ -150,6 +167,7 @@
 	} = {
 		video: '',
 		path: '',
+		audioPath: '',
 		videoName: '',
 		downloadMode: 'video',
 		audioFormat: 'm4a',
@@ -191,6 +209,7 @@
 		editingIdx = idx;
 		editForm = {
 			path: source.path,
+			audioPath: source.audioPath ?? source.filterOption?.audio_path ?? '',
 			videoName: source.videoName ?? '',
 			enabled: source.enabled,
 			useDynamicApi: source.useDynamicApi,
@@ -300,18 +319,30 @@
 		if (!editingSource) return;
 
 		if (!editForm.path?.trim()) {
-			toast.error('路径不能为空');
+			toast.error(isEditSaveAudio ? '视频存储位置不能为空' : '路径不能为空');
 			return;
 		}
+		if (isEditSaveAudio && !editForm.audioPath?.trim()) {
+			toast.error('同时下载视频和音频时，请指定音频存储位置');
+			return;
+		}
+		const trimmedAudioPath = isEditSaveAudio ? editForm.audioPath.trim() : '';
+		const filterOptionPayload = useCustomFilterOption && editFilterOption
+			? {
+					...editFilterOption,
+					audio_path: trimmedAudioPath || null
+				}
+			: null;
 		saving = true;
 		try {
 			let response = await api.updateVideoSource(editingType, editingSource.id, {
-				path: editForm.path,
+				path: editForm.path.trim(),
+				audioPath: trimmedAudioPath,
 				videoName: editForm.videoName.trim() ? editForm.videoName.trim() : '',
 				enabled: editForm.enabled,
 				rule: editForm.rule,
 				useDynamicApi: editForm.useDynamicApi,
-				filterOption: useCustomFilterOption ? editFilterOption : null
+				filterOption: filterOptionPayload
 			});
 			// 更新本地数据
 			if (videoSourcesData && editingSource) {
@@ -320,12 +351,13 @@
 				] as VideoSourceDetail[];
 				sources[editingIdx] = {
 					...sources[editingIdx],
-					path: editForm.path,
+					path: editForm.path.trim(),
+					audioPath: trimmedAudioPath || null,
 					videoName: editForm.videoName.trim() ? editForm.videoName.trim() : null,
 					enabled: editForm.enabled,
 					rule: editForm.rule,
 					useDynamicApi: editForm.useDynamicApi,
-					filterOption: useCustomFilterOption ? structuredClone(editFilterOption) : null,
+					filterOption: filterOptionPayload ? structuredClone(filterOptionPayload) : null,
 					ruleDisplay: response.data.ruleDisplay
 				};
 				videoSourcesData = { ...videoSourcesData };
@@ -403,6 +435,7 @@
 		normalVideoForm = {
 			video: '',
 			path: '',
+			audioPath: '',
 			videoName: '',
 			downloadMode: 'video',
 			audioFormat: 'm4a',
@@ -453,7 +486,21 @@
 						toast.error('请填写完整的普通视频信息');
 						return;
 					}
-					await api.insertNormalVideo(normalVideoForm);
+					if (
+						normalVideoForm.downloadMode === 'video_audio' &&
+						!normalVideoForm.audioPath.trim()
+					) {
+						toast.error('同时下载视频和音频时，请指定音频的存储位置');
+						return;
+					}
+					await api.insertNormalVideo({
+						...normalVideoForm,
+						path: normalVideoForm.path.trim(),
+						audioPath:
+							normalVideoForm.downloadMode === 'video_audio'
+								? normalVideoForm.audioPath.trim()
+								: undefined
+					});
 					break;
 			}
 
@@ -533,16 +580,48 @@
 										<Table.Row>
 											<Table.Cell class="font-medium">{source.name}</Table.Cell>
 											<Table.Cell>
-												<div
-													class="bg-secondary hover:bg-secondary/80 flex w-fit cursor-text items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors"
-												>
-													<FolderIcon class="text-foreground/70 h-3.5 w-3.5 shrink-0" />
-													<span
-														class="text-foreground/70 font-mono text-xs font-medium select-text"
+												{#if isSourceSaveAudio(source)}
+													{@const effectiveAudioPath =
+														source.audioPath ||
+														source.filterOption?.audio_path ||
+														source.path ||
+														'未设置'}
+													<div class="flex flex-col gap-1.5">
+														<div
+															class="bg-secondary hover:bg-secondary/80 flex w-fit cursor-text items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors"
+														>
+															<FolderIcon class="text-foreground/70 h-3.5 w-3.5 shrink-0" />
+															<span class="text-muted-foreground text-xs">视频:</span>
+															<span
+																class="text-foreground/70 font-mono text-xs font-medium select-text"
+															>
+																{source.path || '未设置'}
+															</span>
+														</div>
+														<div
+															class="bg-secondary hover:bg-secondary/80 flex w-fit cursor-text items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors"
+														>
+															<FolderIcon class="text-foreground/70 h-3.5 w-3.5 shrink-0" />
+															<span class="text-muted-foreground text-xs">音频:</span>
+															<span
+																class="text-foreground/70 font-mono text-xs font-medium select-text"
+															>
+																{effectiveAudioPath}
+															</span>
+														</div>
+													</div>
+												{:else}
+													<div
+														class="bg-secondary hover:bg-secondary/80 flex w-fit cursor-text items-center gap-2 rounded-md px-2.5 py-1.5 transition-colors"
 													>
-														{source.path || '未设置'}
-													</span>
-												</div>
+														<FolderIcon class="text-foreground/70 h-3.5 w-3.5 shrink-0" />
+														<span
+															class="text-foreground/70 font-mono text-xs font-medium select-text"
+														>
+															{source.path || '未设置'}
+														</span>
+													</div>
+												{/if}
 											</Table.Cell>
 											<Table.Cell>
 												{#if source.latestRowAt}
@@ -754,13 +833,30 @@
 			</Dialog.Title>
 			<div class="mt-6 space-y-6">
 				<!-- 下载路径 -->
-				<div>
+				<div class="space-y-4">
 					<DownloadPathSelector
 						id="edit-path"
 						bind:value={editForm.path}
 						existingPaths={allExistingPaths}
-						placeholder="请输入下载路径，例如：/path/to/download"
+						label={isEditSaveAudio ? '视频存储位置' : '下载路径'}
+						tooltipContent={isEditSaveAudio
+							? '同时下载视频和音频时，视频及相关元数据文件的保存目标目录。'
+							: '视频/音频文件的保存目标目录。'}
+						placeholder={isEditSaveAudio
+							? '请输入视频存储路径，例如：/path/to/video'
+							: '请输入下载路径，例如：/path/to/download'}
 					/>
+					{#if isEditSaveAudio}
+						<DownloadPathSelector
+							id="edit-audio-path"
+							bind:value={editForm.audioPath}
+							existingPaths={allExistingPaths}
+							label="音频存储位置"
+							tooltipContent="同时下载视频和音频时，音频文件的保存目标目录，可与视频路径分开存储。"
+							description="可指定独立目录分开存储音频，也可选择与视频相同的目录。"
+							placeholder="请输入音频存储路径，例如：/path/to/audio"
+						/>
+					{/if}
 				</div>
 
 				<!-- 启用状态 -->
@@ -1077,12 +1173,35 @@
 							placeholder="请输入下载路径，例如：/path/to/download"
 						/>
 					{:else}
-						<DownloadPathSelector
-							id="path"
-							bind:value={normalVideoForm.path}
-							existingPaths={allExistingPaths}
-							placeholder="请输入下载路径，例如：/path/to/download"
-						/>
+						<div class="space-y-4">
+							<DownloadPathSelector
+								id="path"
+								bind:value={normalVideoForm.path}
+								existingPaths={allExistingPaths}
+								label={normalVideoForm.downloadMode === 'video_audio'
+									? '视频存储位置'
+									: normalVideoForm.downloadMode === 'audio'
+										? '音频存储位置'
+										: '下载路径'}
+								tooltipContent={normalVideoForm.downloadMode === 'video_audio'
+									? '同时下载视频和音频时，视频及相关元数据文件的保存目标目录。'
+									: '视频/音频文件的保存目标目录。'}
+								placeholder={normalVideoForm.downloadMode === 'video_audio'
+									? '请输入视频存储路径，例如：/path/to/video'
+									: '请输入下载路径，例如：/path/to/download'}
+							/>
+							{#if normalVideoForm.downloadMode === 'video_audio'}
+								<DownloadPathSelector
+									id="normal-video-audio-path"
+									bind:value={normalVideoForm.audioPath}
+									existingPaths={allExistingPaths}
+									label="音频存储位置"
+									tooltipContent="同时下载视频和音频时，音频文件的保存目标目录，可与视频路径分开存储。"
+									description="可指定独立目录分开存储音频，也可选择与视频相同的目录。"
+									placeholder="请输入音频存储路径，例如：/path/to/audio"
+								/>
+							{/if}
+						</div>
 					{/if}
 				</div>
 			</div>

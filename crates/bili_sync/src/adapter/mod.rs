@@ -87,6 +87,8 @@ pub trait VideoSource {
 
     fn video_name(&self) -> Option<&str>;
 
+    fn audio_path(&self) -> Option<&Path>;
+
     fn log_refresh_video_start(&self) {
         info!("开始扫描{}..", self.display_name());
     }
@@ -129,6 +131,14 @@ pub trait VideoSource {
                 video_source_path.display()
             )
         })?;
+        if let Some(audio_source_path) = self.audio_path() {
+            tokio::fs::create_dir_all(audio_source_path).await.with_context(|| {
+                format!(
+                    "failed to create audio source directory {}",
+                    audio_source_path.display()
+                )
+            })?;
+        }
         Ok(())
     }
 

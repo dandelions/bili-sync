@@ -114,6 +114,62 @@ pub async fn get_videos(
     }))
 }
 
+async fn resolve_video_audio_base_path(db: &DatabaseConnection, video: &video::Model) -> Result<Option<PathBuf>> {
+    let raw_audio_path = if let Some(id) = video.favorite_id {
+        favorite::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .and_then(|m| m.audio_path)
+    } else if let Some(id) = video.collection_id {
+        collection::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .and_then(|m| m.audio_path)
+    } else if let Some(id) = video.submission_id {
+        submission::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .and_then(|m| m.audio_path)
+    } else if let Some(id) = video.watch_later_id {
+        watch_later::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .and_then(|m| m.audio_path)
+    } else if let Some(id) = video.normal_video_id {
+        normal_video::Entity::find_by_id(id)
+            .one(db)
+            .await?
+            .and_then(|m| m.audio_path)
+    } else {
+        None
+    };
+    Ok(raw_audio_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from))
+}
+
+fn resolve_page_audio_dir(video_path: &FsPath, video_base_path: &str, audio_base_path: Option<&FsPath>) -> Option<PathBuf> {
+    let parent_dir = video_path.parent()?;
+    if let Some(audio_base) = audio_base_path {
+        let rel = if !video_base_path.is_empty() {
+            parent_dir
+                .strip_prefix(FsPath::new(video_base_path))
+                .ok()
+                .filter(|p| !p.as_os_str().is_empty())
+        } else {
+            None
+        };
+        Some(match rel {
+            Some(rel) => audio_base.join(rel),
+            None => audio_base.to_path_buf(),
+        })
+    } else {
+        Some(parent_dir.to_path_buf())
+    }
+}
+
 pub async fn extract_audio(
     Extension(db): Extension<DatabaseConnection>,
     Extension(bili_client): Extension<Arc<BiliClient>>,
@@ -136,6 +192,7 @@ pub async fn extract_audio(
             warnings.push(format!("视频「{}」缺少分页信息", video.name));
             continue;
         }
+        let audio_base_path = resolve_video_audio_base_path(&db, &video).await?;
         for page in pages {
             let Some(video_path) = page.path.as_deref().filter(|path| !path.is_empty()).map(FsPath::new) else {
                 warnings.push(format!("视频「{}」第 {} 页没有本地视频路径", video.name, page.pid));
@@ -154,7 +211,7 @@ pub async fn extract_audio(
                 warnings.push(format!("视频「{}」第 {} 页本地文件名无效", video.name, page.pid));
                 continue;
             };
-            let audio_dir = video_path.parent().map(PathBuf::from);
+            let audio_dir = resolve_page_audio_dir(video_path, &video.path, audio_base_path.as_deref());
             let Some(audio_dir) = audio_dir else {
                 warnings.push(format!("视频「{}」第 {} 页本地路径无效", video.name, page.pid));
                 continue;
@@ -215,29 +272,32 @@ pub async fn delete_videos(
     let mut submission_ids = HashSet::new();
     let mut watch_later_ids = HashSet::new();
     let mut normal_video_ids = HashSet::new();
-    let page_paths = videos
-        .into_iter()
-        .flat_map(|(video, pages)| {
-            if let Some(id) = video.favorite_id {
-                favorite_ids.insert(id);
+    let mut page_paths = Vec::new();
+    for (video, pages) in videos {
+        if let Some(id) = video.favorite_id {
+            favorite_ids.insert(id);
+        }
+        if let Some(id) = video.collection_id {
+            collection_ids.insert(id);
+        }
+        if let Some(id) = video.submission_id {
+            submission_ids.insert(id);
+        }
+        if let Some(id) = video.watch_later_id {
+            watch_later_ids.insert(id);
+        }
+        if let Some(id) = video.normal_video_id {
+            normal_video_ids.insert(id);
+        }
+        let audio_base_path = resolve_video_audio_base_path(&db, &video).await?;
+        for page in pages {
+            if let Some(path) = page.path.filter(|path| !path.is_empty()) {
+                let extra_audio_dir =
+                    resolve_page_audio_dir(FsPath::new(&path), &video.path, audio_base_path.as_deref());
+                page_paths.push((video.id, path, extra_audio_dir));
             }
-            if let Some(id) = video.collection_id {
-                collection_ids.insert(id);
-            }
-            if let Some(id) = video.submission_id {
-                submission_ids.insert(id);
-            }
-            if let Some(id) = video.watch_later_id {
-                watch_later_ids.insert(id);
-            }
-            if let Some(id) = video.normal_video_id {
-                normal_video_ids.insert(id);
-            }
-            pages
-                .into_iter()
-                .filter_map(move |page| page.path.filter(|path| !path.is_empty()).map(|path| (video.id, path)))
-        })
-        .collect::<Vec<_>>();
+        }
+    }
     let txn = db.begin().await?;
     page::Entity::delete_many()
         .filter(page::Column::VideoId.is_in(ids.iter().copied()))
@@ -259,8 +319,8 @@ pub async fn delete_videos(
     .await?;
 
     let mut warnings = Vec::new();
-    for (id, path) in page_paths {
-        if let Err(error) = remove_page_files(FsPath::new(&path)).await {
+    for (id, path, extra_audio_dir) in page_paths {
+        if let Err(error) = remove_page_files(FsPath::new(&path), extra_audio_dir.as_deref()).await {
             warnings.push(format!("视频 {} 的本地文件「{}」删除失败：{:#}", id, path, error));
         }
     }
@@ -270,12 +330,17 @@ pub async fn delete_videos(
     }))
 }
 
-async fn remove_page_files(path: &FsPath) -> Result<()> {
+async fn remove_page_files(path: &FsPath, extra_audio_dir: Option<&FsPath>) -> Result<()> {
     let mut paths = vec![path.to_path_buf()];
     paths.push(path.with_extension("mp4"));
     paths.push(path.with_extension("m4a"));
     paths.push(path.with_extension("mp3"));
     paths.push(path.with_extension("m4b"));
+    if let (Some(audio_dir), Some(stem)) = (extra_audio_dir, path.file_stem()) {
+        paths.push(audio_dir.join(stem).with_extension("m4a"));
+        paths.push(audio_dir.join(stem).with_extension("mp3"));
+        paths.push(audio_dir.join(stem).with_extension("m4b"));
+    }
     paths.push(path.with_file_name(format!(
         "{}-poster.jpg",
         path.file_stem().unwrap_or_default().to_string_lossy()
@@ -411,6 +476,8 @@ pub async fn clear_and_reset_video_status(
     let Some(video_info) = video_info else {
         return Err(InnerApiError::NotFound(id).into());
     };
+    let audio_base_path = resolve_video_audio_base_path(&db, &video_info).await?;
+    let video_base_path = video_info.path.clone();
     let page_paths = page::Entity::find()
         .filter(page::Column::VideoId.eq(id))
         .all(&db)
@@ -432,7 +499,9 @@ pub async fn clear_and_reset_video_status(
     let video_info = video_info.try_into_model()?;
     let mut warnings = Vec::new();
     for path in page_paths {
-        if let Err(error) = remove_page_files(FsPath::new(&path)).await {
+        let extra_audio_dir =
+            resolve_page_audio_dir(FsPath::new(&path), &video_base_path, audio_base_path.as_deref());
+        if let Err(error) = remove_page_files(FsPath::new(&path), extra_audio_dir.as_deref()).await {
             warnings.push(format!("删除本地文件「{}」失败：{:#}", path, error));
         }
     }

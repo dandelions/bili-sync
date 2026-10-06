@@ -36,6 +36,16 @@ pub async fn insert_normal_video(
     if let Some(audio_format) = request.audio_format {
         filter_option.audio_format = audio_format;
     }
+    let audio_path = request
+        .audio_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            matches!(request.download_mode, NormalVideoDownloadMode::VideoAudio).then(|| request.path.clone())
+        });
+    filter_option.audio_path = audio_path.clone();
     let video_name = request
         .video_name
         .map(|s| s.trim().to_string())
@@ -45,6 +55,7 @@ pub async fn insert_normal_video(
         bvid: Set(bvid),
         name: Set(title),
         path: Set(request.path),
+        audio_path: Set(audio_path),
         filter_option: Set(Some(serde_json::to_value(filter_option)?)),
         video_name: Set(video_name),
         enabled: Set(enabled),

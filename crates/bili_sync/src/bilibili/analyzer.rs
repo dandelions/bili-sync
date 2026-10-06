@@ -128,6 +128,8 @@ pub struct FilterOption {
     pub save_audio: bool,
     #[serde(default)]
     pub audio_format: AudioFormat,
+    #[serde(default)]
+    pub audio_path: Option<String>,
     pub no_dolby_video: bool,
     pub no_dolby_audio: bool,
     pub no_hdr: bool,
@@ -145,6 +147,7 @@ impl Default for FilterOption {
             audio_only: false,
             save_audio: false,
             audio_format: AudioFormat::M4a,
+            audio_path: None,
             no_dolby_video: false,
             no_dolby_audio: false,
             no_hdr: false,
@@ -612,6 +615,7 @@ mod tests {
             "audio_min_quality": "Quality64k",
             "codecs": ["AVC"],
             "audio_format": "mp3",
+            "audio_path": "/path/to/audio",
             "no_dolby_video": false,
             "no_dolby_audio": false,
             "no_hdr": false,
@@ -619,6 +623,7 @@ mod tests {
         });
         let opt_mp3: FilterOption = serde_json::from_value(json_with_mp3).expect("deserialization should succeed");
         assert_eq!(opt_mp3.audio_format, AudioFormat::Mp3);
+        assert_eq!(opt_mp3.audio_path.as_deref(), Some("/path/to/audio"));
     }
 
     #[test]

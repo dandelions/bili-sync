@@ -21,3 +21,12 @@ pub fn validate_path(path: &str) -> Result<(), ValidationError> {
         Ok(())
     }
 }
+
+pub fn validate_optional_path(path: &str) -> Result<(), ValidationError> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || Path::new(trimmed).is_absolute() {
+        Ok(())
+    } else {
+        Err(ValidationError::new("audio_path must be an absolute path"))
+    }
+}

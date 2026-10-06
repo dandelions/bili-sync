@@ -101,6 +101,14 @@ impl VideoSource for normal_video::Model {
         self.video_name.as_deref().filter(|s| !s.trim().is_empty())
     }
 
+    fn audio_path(&self) -> Option<&Path> {
+        self.audio_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(Path::new)
+    }
+
     async fn refresh<'a>(
         self,
         bili_client: &'a BiliClient,
@@ -170,7 +178,9 @@ impl VideoSource for normal_video::Model {
             if !new_pages.is_empty() {
                 // 如果之前作为单 P 录入与下载，现在变为了多 P，则平滑迁移 P1 的本地文件名与数据库路径
                 if was_single_page && !now_single_page {
-                    if let Err(e) = migrate_single_page_files(&existing_pages, connection).await {
+                    if let Err(e) =
+                        migrate_single_page_files(&existing_pages, self.path(), self.audio_path(), connection).await
+                    {
                         tracing::warn!("平滑迁移单 P 文件为多 P 命名结构时发生警告: {:#}", e);
                     }
                 }
@@ -232,6 +242,8 @@ impl VideoSource for normal_video::Model {
 /// 当视频由单 P 变为多 P 时，将原先下载的 P1 本地文件平滑迁移至包含 ` - P01` 的文件名结构
 async fn migrate_single_page_files(
     existing_pages: &[page::Model],
+    video_base_path: &Path,
+    audio_base_path: Option<&Path>,
     connection: &DatabaseConnection,
 ) -> Result<()> {
     let Some(p1_page) = existing_pages.iter().find(|p| p.pid == 1) else {
@@ -283,9 +295,9 @@ async fn migrate_single_page_files(
         .unwrap_or("mp4");
     let new_media_path = parent_dir.join(format!("{}.{}", new_file_stem, old_media_ext));
 
-    for (old_name, new_name) in rename_candidates {
-        let old_file = parent_dir.join(&old_name);
-        let new_file = parent_dir.join(&new_name);
+    for (old_name, new_name) in &rename_candidates {
+        let old_file = parent_dir.join(old_name);
+        let new_file = parent_dir.join(new_name);
         if old_file.exists() && !new_file.exists() {
             if let Err(e) = tokio::fs::rename(&old_file, &new_file).await {
                 tracing::warn!(
@@ -296,6 +308,31 @@ async fn migrate_single_page_files(
                 );
             } else if old_file == old_media_path {
                 media_migrated = true;
+            }
+        }
+    }
+
+    if let Some(audio_base_path) = audio_base_path {
+        let audio_parent_dir = parent_dir
+            .strip_prefix(video_base_path)
+            .ok()
+            .filter(|rel| !rel.as_os_str().is_empty())
+            .map(|rel| audio_base_path.join(rel))
+            .unwrap_or_else(|| audio_base_path.to_path_buf());
+        if audio_parent_dir != parent_dir {
+            for ext in ["m4a", "mp3", "m4b"] {
+                let old_file = audio_parent_dir.join(format!("{}.{}", old_file_stem, ext));
+                let new_file = audio_parent_dir.join(format!("{}.{}", new_file_stem, ext));
+                if old_file.exists() && !new_file.exists() {
+                    if let Err(e) = tokio::fs::rename(&old_file, &new_file).await {
+                        tracing::warn!(
+                            "迁移独立音频目录单 P 文件 {} -> {} 失败: {:#}",
+                            old_file.display(),
+                            new_file.display(),
+                            e
+                        );
+                    }
+                }
             }
         }
     }

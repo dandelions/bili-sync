@@ -164,6 +164,8 @@ pub struct InsertNormalVideoRequest {
     pub video: String,
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
+    #[validate(custom(function = "crate::utils::validation::validate_optional_path"))]
+    pub audio_path: Option<String>,
     #[serde(default)]
     pub download_mode: NormalVideoDownloadMode,
     pub video_name: Option<String>,
@@ -176,6 +178,8 @@ pub struct InsertNormalVideoRequest {
 pub struct UpdateVideoSourceRequest {
     #[validate(custom(function = "crate::utils::validation::validate_path"))]
     pub path: String,
+    #[validate(custom(function = "crate::utils::validation::validate_optional_path"))]
+    pub audio_path: Option<String>,
     pub enabled: bool,
     pub rule: Option<Rule>,
     pub filter_option: Option<FilterOption>,

@@ -231,6 +231,7 @@ export type AudioFormat = 'm4a' | 'mp3' | 'm4b';
 export interface InsertNormalVideoRequest {
 	video: string;
 	path: string;
+	audioPath?: string;
 	downloadMode: NormalVideoDownloadMode;
 	videoName?: string;
 	audioFormat?: AudioFormat;
@@ -254,6 +255,7 @@ export interface VideoSourceDetail {
 	id: number;
 	name: string;
 	path: string;
+	audioPath?: string | null;
 	rule: Rule | null;
 	ruleDisplay: string | null;
 	filterOption: FilterOption | null;
@@ -273,6 +275,7 @@ export interface VideoSourcesDetailsResponse {
 
 export interface UpdateVideoSourceRequest {
 	path: string;
+	audioPath?: string | null;
 	enabled: boolean;
 	rule?: Rule | null;
 	filterOption?: FilterOption | null;
@@ -297,6 +300,7 @@ export interface FilterOption {
 	audio_only: boolean;
 	save_audio: boolean;
 	audio_format?: AudioFormat;
+	audio_path?: string | null;
 	no_dolby_video: boolean;
 	no_dolby_audio: boolean;
 	no_hdr: boolean;

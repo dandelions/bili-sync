@@ -117,6 +117,7 @@ pub async fn get_video_sources_details(
                 collection::Column::Id,
                 collection::Column::Name,
                 collection::Column::Path,
+                collection::Column::AudioPath,
                 collection::Column::Rule,
                 collection::Column::FilterOption,
                 collection::Column::VideoName,
@@ -131,6 +132,7 @@ pub async fn get_video_sources_details(
                 favorite::Column::Id,
                 favorite::Column::Name,
                 favorite::Column::Path,
+                favorite::Column::AudioPath,
                 favorite::Column::Rule,
                 favorite::Column::FilterOption,
                 favorite::Column::VideoName,
@@ -145,6 +147,7 @@ pub async fn get_video_sources_details(
             .columns([
                 submission::Column::Id,
                 submission::Column::Path,
+                submission::Column::AudioPath,
                 submission::Column::Enabled,
                 submission::Column::Rule,
                 submission::Column::FilterOption,
@@ -160,6 +163,7 @@ pub async fn get_video_sources_details(
             .columns([
                 watch_later::Column::Id,
                 watch_later::Column::Path,
+                watch_later::Column::AudioPath,
                 watch_later::Column::Enabled,
                 watch_later::Column::Rule,
                 watch_later::Column::FilterOption,
@@ -174,6 +178,7 @@ pub async fn get_video_sources_details(
                 normal_video::Column::Id,
                 normal_video::Column::Name,
                 normal_video::Column::Path,
+                normal_video::Column::AudioPath,
                 normal_video::Column::Rule,
                 normal_video::Column::FilterOption,
                 normal_video::Column::VideoName,
@@ -188,6 +193,7 @@ pub async fn get_video_sources_details(
             id: 1,
             name: "稍后再看".to_string(),
             path: String::new(),
+            audio_path: None,
             rule: None,
             filter_option: None,
             rule_display: None,
@@ -244,11 +250,39 @@ pub async fn update_video_source(
     ValidatedJson(request): ValidatedJson<UpdateVideoSourceRequest>,
 ) -> Result<ApiResponse<UpdateVideoSourceResponse>, ApiError> {
     let rule_display = request.rule.as_ref().map(|rule| rule.to_string());
+    let has_audio_path_field = request.audio_path.is_some();
+    let audio_path = request
+        .audio_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            request
+                .filter_option
+                .as_ref()
+                .and_then(|opt| opt.audio_path.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        });
     let filter_option = request
         .filter_option
         .map(|mut option| {
             if option.audio_only {
                 option.save_audio = false;
+                option.audio_path = None;
+            } else if option.save_audio {
+                option.audio_path = audio_path.clone().or_else(|| {
+                    option
+                        .audio_path
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                });
+            } else {
+                option.audio_path = None;
             }
             serde_json::to_value(option)
         })
@@ -268,11 +302,13 @@ pub async fn update_video_source(
         .filter(|s| !s.is_empty());
     let should_reset_media = matches!(source_type.as_str(), "normal_videos" | "normal_video")
         || filter_option.is_some()
-        || has_video_name_field;
+        || has_video_name_field
+        || has_audio_path_field;
     let active_model = match source_type.as_str() {
         "collections" => collection::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: collection::ActiveModel = model.into();
             active_model.path = Set(request.path);
+            active_model.audio_path = Set(audio_path.clone());
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule);
             active_model.filter_option = Set(filter_option);
@@ -282,6 +318,7 @@ pub async fn update_video_source(
         "favorites" => favorite::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: favorite::ActiveModel = model.into();
             active_model.path = Set(request.path);
+            active_model.audio_path = Set(audio_path.clone());
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule);
             active_model.filter_option = Set(filter_option);
@@ -291,6 +328,7 @@ pub async fn update_video_source(
         "submissions" => submission::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: submission::ActiveModel = model.into();
             active_model.path = Set(request.path.clone());
+            active_model.audio_path = Set(audio_path.clone());
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule.clone());
             active_model.filter_option = Set(filter_option.clone());
@@ -303,6 +341,7 @@ pub async fn update_video_source(
         "normal_videos" | "normal_video" => normal_video::Entity::find_by_id(id).one(&db).await?.map(|model| {
             let mut active_model: normal_video::ActiveModel = model.into();
             active_model.path = Set(request.path.clone());
+            active_model.audio_path = Set(audio_path.clone());
             active_model.enabled = Set(request.enabled);
             active_model.rule = Set(request.rule.clone());
             active_model.filter_option = Set(filter_option.clone());
@@ -316,6 +355,7 @@ pub async fn update_video_source(
                 // 如果有记录，使用 id 对应的记录更新
                 let mut active_model: watch_later::ActiveModel = model.into();
                 active_model.path = Set(request.path);
+                active_model.audio_path = Set(audio_path);
                 active_model.enabled = Set(request.enabled);
                 active_model.rule = Set(request.rule);
                 active_model.filter_option = Set(filter_option);
@@ -329,6 +369,7 @@ pub async fn update_video_source(
                     // 如果没有记录且 id 为 1，插入一个新的稍后再看记录
                     Some(_ActiveModel::WatchLater(watch_later::ActiveModel {
                         path: Set(request.path),
+                        audio_path: Set(audio_path),
                         enabled: Set(request.enabled),
                         rule: Set(request.rule),
                         filter_option: Set(filter_option),

@@ -228,6 +228,7 @@ pub struct VideoSourceDetail {
     pub id: i32,
     pub name: String,
     pub path: String,
+    pub audio_path: Option<String>,
     pub rule: Option<Rule>,
     pub filter_option: Option<serde_json::Value>,
     pub video_name: Option<String>,

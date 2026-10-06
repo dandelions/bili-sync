@@ -31,7 +31,8 @@
 			...option,
 			audio_only: option.audio_only ?? false,
 			save_audio: option.save_audio ?? false,
-			audio_format: option.audio_format ?? 'm4a'
+			audio_format: option.audio_format ?? 'm4a',
+			audio_path: option.audio_path ?? null
 		};
 	}
 
