@@ -335,20 +335,36 @@ mod tests {
             video_name
         };
         multi_tpl.path_safe_register("multi_page_video", multi_page_video_name).unwrap();
+        multi_tpl
+            .path_safe_register("collection_tpl", "{{collection_name}}/{{title}}/{{pid_pad}} - {{ptitle}}")
+            .unwrap();
         let page_args = json!({
+            "collection_name": "Rust零基础合集",
             "title": "测试课程合集",
             "pid_pad": "01",
             "ptitle": "第一讲 导论",
         });
         #[cfg(not(windows))]
-        assert_eq!(
-            multi_tpl.path_safe_render("multi_page_video", &page_args).unwrap(),
-            "测试课程合集/01 - 第一讲 导论"
-        );
+        {
+            assert_eq!(
+                multi_tpl.path_safe_render("multi_page_video", &page_args).unwrap(),
+                "测试课程合集/01 - 第一讲 导论"
+            );
+            assert_eq!(
+                multi_tpl.path_safe_render("collection_tpl", &page_args).unwrap(),
+                "Rust零基础合集/测试课程合集/01 - 第一讲 导论"
+            );
+        }
         #[cfg(windows)]
-        assert_eq!(
-            multi_tpl.path_safe_render("multi_page_video", &page_args).unwrap(),
-            r"测试课程合集\01 - 第一讲 导论"
-        );
+        {
+            assert_eq!(
+                multi_tpl.path_safe_render("multi_page_video", &page_args).unwrap(),
+                r"测试课程合集\01 - 第一讲 导论"
+            );
+            assert_eq!(
+                multi_tpl.path_safe_render("collection_tpl", &page_args).unwrap(),
+                r"Rust零基础合集\测试课程合集\01 - 第一讲 导论"
+            );
+        }
     }
 }

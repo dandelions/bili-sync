@@ -56,6 +56,10 @@ impl VideoSource for normal_video::Model {
         format!("普通视频「{}」", self.name).into()
     }
 
+    fn source_name(&self) -> Cow<'static, str> {
+        self.name.clone().into()
+    }
+
     fn filter_expr(&self) -> SimpleExpr {
         video::Column::NormalVideoId.eq(self.id)
     }

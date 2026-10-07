@@ -20,6 +20,10 @@ impl VideoSource for collection::Model {
         format!("{}「{}」", CollectionType::from_expected(self.r#type), self.name).into()
     }
 
+    fn source_name(&self) -> Cow<'static, str> {
+        self.name.clone().into()
+    }
+
     fn filter_expr(&self) -> SimpleExpr {
         video::Column::CollectionId.eq(self.id)
     }

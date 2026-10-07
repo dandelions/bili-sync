@@ -18,6 +18,10 @@ impl VideoSource for submission::Model {
         format!("「{}」投稿", self.upper_name).into()
     }
 
+    fn source_name(&self) -> std::borrow::Cow<'static, str> {
+        self.upper_name.clone().into()
+    }
+
     fn filter_expr(&self) -> SimpleExpr {
         video::Column::SubmissionId.eq(self.id)
     }

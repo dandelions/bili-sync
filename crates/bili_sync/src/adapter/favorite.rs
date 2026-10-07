@@ -19,6 +19,10 @@ impl VideoSource for favorite::Model {
         format!("收藏夹「{}」", self.name).into()
     }
 
+    fn source_name(&self) -> Cow<'static, str> {
+        self.name.clone().into()
+    }
+
     fn filter_expr(&self) -> SimpleExpr {
         video::Column::FavoriteId.eq(self.id)
     }

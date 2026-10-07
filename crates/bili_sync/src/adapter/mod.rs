@@ -41,8 +41,11 @@ pub enum VideoSourceEnum {
 
 #[enum_dispatch(VideoSourceEnum)]
 pub trait VideoSource {
-    /// 获取视频源的名称
+    /// 获取视频源的名称（带类型前缀，用于日志展示）
     fn display_name(&self) -> Cow<'static, str>;
+
+    /// 获取视频源的纯名称（如合集名、收藏夹名、UP主名等，用于文件名模板 `{{collection_name}}`）
+    fn source_name(&self) -> Cow<'static, str>;
 
     /// 获取特定视频列表的筛选条件
     fn filter_expr(&self) -> SimpleExpr;

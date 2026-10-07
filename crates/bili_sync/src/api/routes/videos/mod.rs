@@ -30,7 +30,7 @@ use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
 use crate::bilibili::{AudioFormat, BiliClient, FilterOption};
 use crate::config::{PathSafeTemplate, VersionedConfig, create_template_with_video_name};
 use crate::downloader::Downloader;
-use crate::utils::format_arg::page_format_args;
+use crate::utils::format_arg::page_format_args_with_source;
 use crate::utils::status::{PageStatus, VideoStatus};
 
 pub(super) fn router() -> Router {
@@ -119,43 +119,44 @@ pub async fn get_videos(
 struct VideoSourceAudioConfig {
     audio_base_path: Option<PathBuf>,
     video_name: Option<String>,
+    source_name: Option<String>,
     audio_format: AudioFormat,
 }
 
 async fn resolve_video_audio_config(db: &DatabaseConnection, video: &video::Model) -> Result<VideoSourceAudioConfig> {
     let config = VersionedConfig::get().snapshot();
-    let (raw_audio_path, raw_video_name, raw_filter_option) = if let Some(id) = video.favorite_id {
+    let (raw_audio_path, raw_video_name, raw_source_name, raw_filter_option) = if let Some(id) = video.favorite_id {
         favorite::Entity::find_by_id(id)
             .one(db)
             .await?
-            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .map(|m| (m.audio_path, m.video_name, Some(m.name), m.filter_option))
             .unwrap_or_default()
     } else if let Some(id) = video.collection_id {
         collection::Entity::find_by_id(id)
             .one(db)
             .await?
-            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .map(|m| (m.audio_path, m.video_name, Some(m.name), m.filter_option))
             .unwrap_or_default()
     } else if let Some(id) = video.submission_id {
         submission::Entity::find_by_id(id)
             .one(db)
             .await?
-            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .map(|m| (m.audio_path, m.video_name, Some(m.upper_name), m.filter_option))
             .unwrap_or_default()
     } else if let Some(id) = video.watch_later_id {
         watch_later::Entity::find_by_id(id)
             .one(db)
             .await?
-            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .map(|m| (m.audio_path, m.video_name, Some("稍后再看".to_string()), m.filter_option))
             .unwrap_or_default()
     } else if let Some(id) = video.normal_video_id {
         normal_video::Entity::find_by_id(id)
             .one(db)
             .await?
-            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .map(|m| (m.audio_path, m.video_name, Some(m.name), m.filter_option))
             .unwrap_or_default()
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
     let filter_option = raw_filter_option
         .and_then(|v| serde_json::from_value::<FilterOption>(v).ok())
@@ -178,9 +179,15 @@ async fn resolve_video_audio_config(db: &DatabaseConnection, video: &video::Mode
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let source_name = raw_source_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     Ok(VideoSourceAudioConfig {
         audio_base_path,
         video_name,
+        source_name,
         audio_format: filter_option.audio_format,
     })
 }
@@ -266,7 +273,15 @@ pub async fn extract_audio(
                 continue;
             };
             let rendered_rel = template
-                .path_safe_render(template_name, &page_format_args(&video, &page, &config.time_format))
+                .path_safe_render(
+                    template_name,
+                    &page_format_args_with_source(
+                        &video,
+                        &page,
+                        audio_cfg.source_name.as_deref(),
+                        &config.time_format,
+                    ),
+                )
                 .ok();
             let audio_path = if let Some(ref audio_base) = audio_cfg.audio_base_path {
                 if let Some(ref rendered) = rendered_rel {

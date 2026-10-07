@@ -42,6 +42,8 @@
 
 	const PRESET_TEMPLATES = [
 		{ template: '{{title}}', label: '默认标题' },
+		{ template: '{{collection_name}}/{{title}}', label: '合集目录/视频标题' },
+		{ template: '{{collection_name}}/{{title}}/{{pid_pad}} - {{ptitle}}', label: '合集目录/视频标题/01 - 分P标题' },
 		{ template: '{{title}}/{{pid_pad}} - {{ptitle}}', label: '多P：01 - 分P标题（序号在前）' },
 		{ template: '{{title}}/{{ptitle}} - {{pid_pad}}', label: '多P：分P标题 - 01（序号在后）' },
 		{ template: '{{title}}/{{P_pad}} - {{ptitle}}', label: '多P：P01 - 分P标题（P01在前）' },
@@ -59,6 +61,7 @@
 
 	const VARIABLES = [
 		{ name: 'title', label: '视频标题' },
+		{ name: 'collection_name', label: '合集/视频源名称' },
 		{ name: 'ptitle', label: '分P标题' },
 		{ name: 'pid_pad', label: '分P补零(01)' },
 		{ name: 'P_pad', label: '分PP补零(P01)' },

@@ -22,7 +22,7 @@ use crate::notifier::DownloadNotifyInfo;
 use crate::utils::danmaku_schedule::should_sync_danmaku;
 use crate::utils::download_context::DownloadContext;
 use crate::utils::filenamify::filenamify;
-use crate::utils::format_arg::{page_format_args, video_format_args};
+use crate::utils::format_arg::{page_format_args_with_source, video_format_args_with_source};
 use crate::utils::model::{
     create_pages, create_videos, filter_unfilled_videos, filter_unhandled_video_pages, set_video_models_invalid,
     update_pages_model, update_video_detail_models, update_videos_model,
@@ -407,9 +407,11 @@ pub async fn download_video_pages(
     let is_single_page = video_model.single_page.context("single_page is null")?;
     let template_name = if is_single_page { "video" } else { "multi_page_video" };
 
-    let rendered_video_name = cx
-        .template
-        .path_safe_render(template_name, &video_format_args(&video_model, &cx.config.time_format))?;
+    let source_name = cx.video_source.source_name();
+    let rendered_video_name = cx.template.path_safe_render(
+        template_name,
+        &video_format_args_with_source(&video_model, Some(source_name.as_ref()), &cx.config.time_format),
+    )?;
     let rendered_path = Path::new(&rendered_video_name);
     let has_subdir = rendered_path
         .parent()
@@ -607,6 +609,7 @@ async fn reconcile_completed_video_paths(cx: DownloadContext<'_>) -> Result<()> 
     };
 
     let raw_video_name_template = cx.video_source.video_name().unwrap_or(&cx.config.video_name);
+    let source_name = cx.video_source.source_name();
     let completed_videos = video::Entity::find()
         .filter(
             video::Column::Valid
@@ -637,7 +640,12 @@ async fn reconcile_completed_video_paths(cx: DownloadContext<'_>) -> Result<()> 
         for page_model in pages {
             let Ok(rendered_video_name) = cx.template.path_safe_render(
                 template_name,
-                &page_format_args(&video_model, &page_model, &cx.config.time_format),
+                &page_format_args_with_source(
+                    &video_model,
+                    &page_model,
+                    Some(source_name.as_ref()),
+                    &cx.config.time_format,
+                ),
             ) else {
                 continue;
             };
@@ -843,9 +851,16 @@ pub async fn download_page(
     let audio_only = cx.filter_option.audio_only && !cx.filter_option.save_audio;
     let save_audio = cx.filter_option.save_audio;
     let template_name = if is_single_page { "video" } else { "multi_page_video" };
-    let rendered_video_name = cx
-        .template
-        .path_safe_render(template_name, &page_format_args(video_model, &page_model, &cx.config.time_format))?;
+    let source_name = cx.video_source.source_name();
+    let rendered_video_name = cx.template.path_safe_render(
+        template_name,
+        &page_format_args_with_source(
+            video_model,
+            &page_model,
+            Some(source_name.as_ref()),
+            &cx.config.time_format,
+        ),
+    )?;
     let rendered_path = Path::new(&rendered_video_name);
     let target_dir = match rendered_path.parent() {
         Some(p) if !p.as_os_str().is_empty() => base_path.join(p),

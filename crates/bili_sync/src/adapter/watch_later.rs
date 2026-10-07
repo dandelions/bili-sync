@@ -18,6 +18,10 @@ impl VideoSource for watch_later::Model {
         "稍后再看".into()
     }
 
+    fn source_name(&self) -> std::borrow::Cow<'static, str> {
+        "稍后再看".into()
+    }
+
     fn filter_expr(&self) -> SimpleExpr {
         video::Column::WatchLaterId.eq(self.id)
     }

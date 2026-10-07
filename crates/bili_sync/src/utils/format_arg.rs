@@ -1,11 +1,25 @@
 use serde_json::json;
 
+#[allow(dead_code)]
 pub fn video_format_args(video_model: &bili_sync_entity::video::Model, time_format: &str) -> serde_json::Value {
+    video_format_args_with_source(video_model, None, time_format)
+}
+
+pub fn video_format_args_with_source(
+    video_model: &bili_sync_entity::video::Model,
+    source_name: Option<&str>,
+    time_format: &str,
+) -> serde_json::Value {
     let is_single_page = video_model.single_page.unwrap_or(true);
+    let collection_name = source_name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(video_model.name.as_str());
     json!({
         "bvid": &video_model.bvid,
         "title": &video_model.name,
-        "collection_name": &video_model.name,
+        "collection_name": collection_name,
+        "source_name": collection_name,
         "video_title": &video_model.name,
         "upper_name": &video_model.upper_name,
         "upper_mid": &video_model.upper_id,
@@ -23,9 +37,19 @@ pub fn video_format_args(video_model: &bili_sync_entity::video::Model, time_form
     })
 }
 
+#[allow(dead_code)]
 pub fn page_format_args(
     video_model: &bili_sync_entity::video::Model,
     page_model: &bili_sync_entity::page::Model,
+    time_format: &str,
+) -> serde_json::Value {
+    page_format_args_with_source(video_model, page_model, None, time_format)
+}
+
+pub fn page_format_args_with_source(
+    video_model: &bili_sync_entity::video::Model,
+    page_model: &bili_sync_entity::page::Model,
+    source_name: Option<&str>,
     time_format: &str,
 ) -> serde_json::Value {
     let pid = page_model.pid;
@@ -34,6 +58,10 @@ pub fn page_format_args(
     let p_pad_upper = format!("P{:0>2}", pid);
     let p_pad_lower = format!("p{:0>2}", pid);
     let is_single_page = video_model.single_page.unwrap_or(true);
+    let collection_name = source_name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(video_model.name.as_str());
     let ptitle = if page_model.name.trim().is_empty() {
         video_model.name.as_str()
     } else {
@@ -42,7 +70,8 @@ pub fn page_format_args(
     json!({
         "bvid": &video_model.bvid,
         "title": &video_model.name,
-        "collection_name": &video_model.name,
+        "collection_name": collection_name,
+        "source_name": collection_name,
         "video_title": &video_model.name,
         "upper_name": &video_model.upper_name,
         "upper_mid": &video_model.upper_id,
