@@ -18,7 +18,13 @@ pub fn create_template_with_video_name(config: &Config, video_name: &str) -> Res
     let mut handlebars = handlebars::Handlebars::new();
     handlebars.register_helper("truncate", Box::new(TruncateHelper));
     handlebars.register_helper("pad", Box::new(PadHelper));
+    let multi_page_video_name = if video_name.trim().is_empty() || video_name.trim() == "{{title}}" {
+        "{{title}}/{{pid_pad}} - {{ptitle}}"
+    } else {
+        video_name
+    };
     handlebars.path_safe_register("video", video_name.to_owned())?;
+    handlebars.path_safe_register("multi_page_video", multi_page_video_name.to_owned())?;
     handlebars.path_safe_register("page", config.page_name.clone())?;
     handlebars.path_safe_register("favorite_default_path", config.favorite_default_path.clone())?;
     handlebars.path_safe_register("collection_default_path", config.collection_default_path.clone())?;
@@ -316,6 +322,33 @@ mod tests {
         assert_eq!(
             template.path_safe_render("test_pad_prefix", &json!({"pid": 2})).unwrap(),
             "P02"
+        );
+
+        // multi_page_video 默认模板测试
+        let mut multi_tpl = handlebars::Handlebars::new();
+        multi_tpl.register_helper("truncate", Box::new(TruncateHelper));
+        multi_tpl.register_helper("pad", Box::new(PadHelper));
+        let video_name = "{{title}}";
+        let multi_page_video_name = if video_name.trim().is_empty() || video_name.trim() == "{{title}}" {
+            "{{title}}/{{pid_pad}} - {{ptitle}}"
+        } else {
+            video_name
+        };
+        multi_tpl.path_safe_register("multi_page_video", multi_page_video_name).unwrap();
+        let page_args = json!({
+            "title": "测试课程合集",
+            "pid_pad": "01",
+            "ptitle": "第一讲 导论",
+        });
+        #[cfg(not(windows))]
+        assert_eq!(
+            multi_tpl.path_safe_render("multi_page_video", &page_args).unwrap(),
+            "测试课程合集/01 - 第一讲 导论"
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            multi_tpl.path_safe_render("multi_page_video", &page_args).unwrap(),
+            r"测试课程合集\01 - 第一讲 导论"
         );
     }
 }

@@ -5,6 +5,8 @@ pub fn video_format_args(video_model: &bili_sync_entity::video::Model, time_form
     json!({
         "bvid": &video_model.bvid,
         "title": &video_model.name,
+        "collection_name": &video_model.name,
+        "video_title": &video_model.name,
         "upper_name": &video_model.upper_name,
         "upper_mid": &video_model.upper_id,
         "ptitle": &video_model.name,
@@ -32,12 +34,19 @@ pub fn page_format_args(
     let p_pad_upper = format!("P{:0>2}", pid);
     let p_pad_lower = format!("p{:0>2}", pid);
     let is_single_page = video_model.single_page.unwrap_or(true);
+    let ptitle = if page_model.name.trim().is_empty() {
+        video_model.name.as_str()
+    } else {
+        page_model.name.as_str()
+    };
     json!({
         "bvid": &video_model.bvid,
         "title": &video_model.name,
+        "collection_name": &video_model.name,
+        "video_title": &video_model.name,
         "upper_name": &video_model.upper_name,
         "upper_mid": &video_model.upper_id,
-        "ptitle": &page_model.name,
+        "ptitle": ptitle,
         "pid": pid,
         "p": pid,
         "pid_pad": pid_pad,

@@ -31,7 +31,9 @@ pub async fn update_config(
     config.check()?;
     let previous_config = VersionedConfig::get().snapshot();
     let media_filter_changed =
-        serde_json::to_value(&previous_config.filter_option)? != serde_json::to_value(&config.filter_option)?;
+        serde_json::to_value(&previous_config.filter_option)? != serde_json::to_value(&config.filter_option)?
+            || previous_config.video_name != config.video_name
+            || previous_config.page_name != config.page_name;
     let new_config = VersionedConfig::get().update(config, &db).await?;
     if media_filter_changed {
         reset_all_media_download_status(&db).await?;

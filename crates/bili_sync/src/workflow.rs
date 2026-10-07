@@ -21,6 +21,7 @@ use crate::error::ExecutionStatus;
 use crate::notifier::DownloadNotifyInfo;
 use crate::utils::danmaku_schedule::should_sync_danmaku;
 use crate::utils::download_context::DownloadContext;
+use crate::utils::filenamify::filenamify;
 use crate::utils::format_arg::{page_format_args, video_format_args};
 use crate::utils::model::{
     create_pages, create_videos, filter_unfilled_videos, filter_unhandled_video_pages, set_video_models_invalid,
@@ -29,7 +30,7 @@ use crate::utils::model::{
 use crate::utils::nfo::{NFO, ToNFO};
 use crate::utils::notify::notify;
 use crate::utils::rule::FieldEvaluatable;
-use crate::utils::status::{PageStatus, STATUS_OK, VideoStatus};
+use crate::utils::status::{PageStatus, STATUS_COMPLETED, STATUS_OK, VideoStatus};
 
 const DANMAKU_STATUS_OFFSET: usize = 3;
 const VIDEO_PAGE_STATUS_OFFSET: usize = 4;
@@ -231,20 +232,19 @@ pub async fn download_unprocessed_videos(
         filter_option.audio_only,
         filter_option.save_audio
     );
-    let custom_template = match video_source.video_name() {
-        Some(custom_name) => Some(crate::config::create_template_with_video_name(config, custom_name)?),
-        None => None,
-    };
-    let effective_template = custom_template.as_ref().unwrap_or(template);
+    let effective_video_name = video_source.video_name().unwrap_or(&config.video_name);
+    let effective_template = crate::config::create_template_with_video_name(config, effective_video_name)?;
+    let _ = template;
     let cx = DownloadContext::new(
         bili_client,
         video_source,
-        effective_template,
+        &effective_template,
         connection,
         &downloader,
         config,
         &filter_option,
     );
+    reconcile_completed_video_paths(cx).await?;
     let unhandled_videos_pages = filter_unhandled_video_pages(video_source.filter_expr(), connection).await?;
     let mut assigned_upper_ids = HashSet::new();
     let tasks = stream::iter(unhandled_videos_pages)
@@ -401,26 +401,34 @@ pub async fn download_video_pages(
 ) -> Result<video::ActiveModel> {
     let mut status = VideoStatus::from(video_model.download_status);
     let separate_status = status.should_run();
-    // 所有媒体直接保存到视频源根目录，不再按视频名称创建子目录。
     let base_path = PathBuf::from(cx.video_source.path());
     fs::create_dir_all(&base_path).await?;
+    let base_path = dunce::canonicalize(&base_path).unwrap_or(base_path);
+    let is_single_page = video_model.single_page.context("single_page is null")?;
+    let template_name = if is_single_page { "video" } else { "multi_page_video" };
 
     let rendered_video_name = cx
         .template
-        .path_safe_render("video", &video_format_args(&video_model, &cx.config.time_format))?;
+        .path_safe_render(template_name, &video_format_args(&video_model, &cx.config.time_format))?;
     let rendered_path = Path::new(&rendered_video_name);
+    let has_subdir = rendered_path
+        .parent()
+        .is_some_and(|p| !p.as_os_str().is_empty());
     let target_dir = match rendered_path.parent() {
         Some(p) if !p.as_os_str().is_empty() => base_path.join(p),
         _ => base_path.clone(),
     };
     fs::create_dir_all(&target_dir).await?;
 
-    let video_name = rendered_path
-        .file_name()
-        .context("video_name 模板未生成有效文件名")?
-        .to_string_lossy()
-        .to_string();
-    let is_single_page = video_model.single_page.context("single_page is null")?;
+    let video_name = if !is_single_page && has_subdir {
+        filenamify(&video_model.name)
+    } else {
+        rendered_path
+            .file_name()
+            .context("video_name 模板未生成有效文件名")?
+            .to_string_lossy()
+            .to_string()
+    };
     let uppers_with_path = video_model
         .uppers()
         .filter_map(|u| {
@@ -440,20 +448,27 @@ pub async fn download_video_pages(
         .collect::<Vec<_>>();
     // 对于单页视频，page 的下载已经足够
     // 对于多页视频，page 下载仅包含了分集内容，需要额外补上视频的 poster 的 tvshow.nfo
+    let video_poster_path = target_dir.join(format!("{}-poster.jpg", video_name));
+    let video_fanart_path = target_dir.join(format!("{}-fanart.jpg", video_name));
+    let video_nfo_path = target_dir.join(format!("{}.tvshow.nfo", video_name));
     let (res_1, res_2, res_3, res_4, res_5) = tokio::join!(
         // 下载视频封面
         fetch_video_poster(
-            separate_status[0] && !is_single_page && !cx.config.skip_option.no_poster,
+            (separate_status[0] || !video_poster_path.exists())
+                && !is_single_page
+                && !cx.config.skip_option.no_poster,
             &video_model,
-            target_dir.join(format!("{}-poster.jpg", video_name)),
-            target_dir.join(format!("{}-fanart.jpg", video_name)),
+            video_poster_path,
+            video_fanart_path,
             cx
         ),
         // 生成视频信息的 nfo
         generate_video_nfo(
-            separate_status[1] && !is_single_page && !cx.config.skip_option.no_video_nfo,
+            (separate_status[1] || !video_nfo_path.exists())
+                && !is_single_page
+                && !cx.config.skip_option.no_video_nfo,
             &video_model,
-            target_dir.join(format!("{}.tvshow.nfo", video_name)),
+            video_nfo_path,
             cx
         ),
         // 下载 Up 主头像
@@ -559,6 +574,245 @@ pub async fn dispatch_download_page(
     Ok(ExecutionStatus::Fixed(target_status))
 }
 
+async fn reconcile_completed_video_paths(cx: DownloadContext<'_>) -> Result<()> {
+    let base_path = PathBuf::from(cx.video_source.path());
+    if base_path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(&base_path).await?;
+    let base_path = dunce::canonicalize(&base_path).unwrap_or(base_path);
+    let audio_only = cx.filter_option.audio_only && !cx.filter_option.save_audio;
+    let save_audio = cx.filter_option.save_audio;
+    let audio_extension = cx.filter_option.audio_format.extension();
+    let canonical_audio_base = if save_audio {
+        let configured_audio_base = cx
+            .video_source
+            .audio_path()
+            .or_else(|| {
+                cx.filter_option
+                    .audio_path
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(Path::new)
+            });
+        if let Some(raw_audio_base) = configured_audio_base {
+            fs::create_dir_all(raw_audio_base).await?;
+            Some(dunce::canonicalize(raw_audio_base).unwrap_or_else(|_| raw_audio_base.to_path_buf()))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let raw_video_name_template = cx.video_source.video_name().unwrap_or(&cx.config.video_name);
+    let completed_videos = video::Entity::find()
+        .filter(
+            video::Column::Valid
+                .eq(true)
+                .and(video::Column::DownloadStatus.gte(STATUS_COMPLETED))
+                .and(video::Column::Category.eq(2))
+                .and(video::Column::SinglePage.is_not_null())
+                .and(video::Column::ShouldDownload.eq(true))
+                .and(cx.video_source.filter_expr()),
+        )
+        .find_with_related(page::Entity)
+        .all(cx.connection)
+        .await?;
+
+    let mut reset_video_ids = Vec::new();
+    let mut reset_page_ids = Vec::new();
+    for (video_model, pages) in completed_videos {
+        let is_single_page = video_model.single_page.unwrap_or(true);
+        let template_name = if is_single_page { "video" } else { "multi_page_video" };
+        let effective_video_name_template = if !is_single_page
+            && (raw_video_name_template.trim().is_empty() || raw_video_name_template.trim() == "{{title}}")
+        {
+            "{{title}}/{{pid_pad}} - {{ptitle}}"
+        } else {
+            raw_video_name_template
+        };
+        let mut video_needs_reset = false;
+        for page_model in pages {
+            let Ok(rendered_video_name) = cx.template.path_safe_render(
+                template_name,
+                &page_format_args(&video_model, &page_model, &cx.config.time_format),
+            ) else {
+                continue;
+            };
+            let rendered_path = Path::new(&rendered_video_name);
+            let target_dir = match rendered_path.parent() {
+                Some(p) if !p.as_os_str().is_empty() => base_path.join(p),
+                _ => base_path.clone(),
+            };
+            let Some(base_name) = rendered_path.file_name().map(|s| s.to_string_lossy().to_string()) else {
+                continue;
+            };
+            let page_name = if is_single_page || has_explicit_page_marker(effective_video_name_template) {
+                base_name
+            } else {
+                format!("{} - P{:0>2}", base_name, page_model.pid)
+            };
+            let expected_video_path = target_dir.join(format!("{}.mp4", page_name));
+            let expected_audio_path = (audio_only || save_audio).then(|| {
+                if save_audio {
+                    let audio_dir = if let Some(ref audio_base) = canonical_audio_base {
+                        match rendered_path.parent() {
+                            Some(p) if !p.as_os_str().is_empty() => audio_base.join(p),
+                            _ => audio_base.clone(),
+                        }
+                    } else {
+                        target_dir.clone()
+                    };
+                    audio_dir.join(format!("{}.{}", page_name, audio_extension))
+                } else {
+                    target_dir.join(format!("{}.{}", page_name, audio_extension))
+                }
+            });
+            let expected_media_path = if audio_only {
+                expected_audio_path.clone().unwrap_or(expected_video_path.clone())
+            } else {
+                expected_video_path
+            };
+            let current_path_matches = page_model
+                .path
+                .as_deref()
+                .is_some_and(|p| Path::new(p) == expected_media_path.as_path() && expected_media_path.exists());
+            let audio_exists = if save_audio {
+                expected_audio_path.as_ref().is_some_and(|p| p.exists())
+            } else {
+                true
+            };
+            if !current_path_matches || !audio_exists {
+                reset_page_ids.push(page_model.id);
+                video_needs_reset = true;
+            }
+        }
+        if video_needs_reset {
+            reset_video_ids.push(video_model.id);
+        }
+    }
+    if !reset_video_ids.is_empty() && !reset_page_ids.is_empty() {
+        let txn = cx.connection.begin().await?;
+        video::Entity::update_many()
+            .col_expr(
+                video::Column::DownloadStatus,
+                VideoStatus::query_builder().reset_subtask(VIDEO_PAGE_STATUS_OFFSET),
+            )
+            .filter(video::Column::Id.is_in(reset_video_ids))
+            .exec(&txn)
+            .await?;
+        page::Entity::update_many()
+            .col_expr(
+                page::Column::DownloadStatus,
+                PageStatus::query_builder().reset_subtask(1),
+            )
+            .filter(page::Column::Id.is_in(reset_page_ids))
+            .exec(&txn)
+            .await?;
+        txn.commit().await?;
+    }
+    Ok(())
+}
+
+async fn move_file_if_needed(src: &Path, dst: &Path) -> bool {
+    if src == dst || !src.exists() || dst.exists() {
+        return false;
+    }
+    if let Some(parent) = dst.parent() {
+        let _ = fs::create_dir_all(parent).await;
+    }
+    if fs::rename(src, dst).await.is_ok() {
+        return true;
+    }
+    if fs::copy(src, dst).await.is_ok() {
+        let _ = fs::remove_file(src).await;
+        return true;
+    }
+    false
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn migrate_legacy_page_files(
+    legacy_media_path: Option<&Path>,
+    base_path: &Path,
+    canonical_audio_base: Option<&Path>,
+    page_name: &str,
+    video_path: &Path,
+    audio_path: Option<&Path>,
+    poster_path: &Path,
+    fanart_path: Option<&Path>,
+    nfo_path: &Path,
+    danmaku_path: &Path,
+    subtitle_path: &Path,
+    audio_extension: &str,
+    save_audio: bool,
+    cx: DownloadContext<'_>,
+) {
+    if let Some(old_media) = legacy_media_path {
+        if let (Some(old_parent), Some(old_stem)) = (
+            old_media.parent(),
+            old_media.file_stem().and_then(|s| s.to_str()),
+        ) {
+            let old_mp4 = old_parent.join(format!("{}.mp4", old_stem));
+            move_file_if_needed(&old_mp4, video_path).await;
+
+            let old_poster = old_parent.join(format!("{}-poster.jpg", old_stem));
+            move_file_if_needed(&old_poster, poster_path).await;
+
+            if let Some(fanart_dst) = fanart_path {
+                let old_fanart = old_parent.join(format!("{}-fanart.jpg", old_stem));
+                move_file_if_needed(&old_fanart, fanart_dst).await;
+            }
+
+            let old_nfo = old_parent.join(format!("{}.nfo", old_stem));
+            move_file_if_needed(&old_nfo, nfo_path).await;
+
+            let old_danmaku = old_parent.join(format!("{}.zh-CN.default.ass", old_stem));
+            move_file_if_needed(&old_danmaku, danmaku_path).await;
+
+            let old_srt = old_parent.join(format!("{}.srt", old_stem));
+            move_file_if_needed(&old_srt, subtitle_path).await;
+
+            if let Some(audio_dst) = audio_path {
+                let mut candidate_audio_sources = vec![
+                    old_parent.join(format!("{}.{}", old_stem, audio_extension)),
+                    old_parent.join(format!("{}.{}", page_name, audio_extension)),
+                    base_path.join(format!("{}.{}", old_stem, audio_extension)),
+                ];
+                if let Some(audio_base) = canonical_audio_base {
+                    candidate_audio_sources.push(audio_base.join(format!("{}.{}", old_stem, audio_extension)));
+                    candidate_audio_sources.push(audio_base.join(format!("{}.{}", page_name, audio_extension)));
+                }
+                for cand in candidate_audio_sources {
+                    if move_file_if_needed(&cand, audio_dst).await {
+                        break;
+                    }
+                }
+            }
+        }
+    } else if let (Some(audio_dst), Some(audio_base)) = (audio_path, canonical_audio_base) {
+        let root_audio = audio_base.join(format!("{}.{}", page_name, audio_extension));
+        move_file_if_needed(&root_audio, audio_dst).await;
+    }
+
+    if save_audio
+        && video_path.exists()
+        && let Some(audio_dst) = audio_path
+        && !audio_dst.exists()
+    {
+        if let Err(err) = cx.downloader.extract_audio(video_path, audio_dst).await {
+            warn!(
+                "从本地视频提取音频到目标模板路径失败 {} -> {}: {:#}",
+                video_path.display(),
+                audio_dst.display(),
+                err
+            );
+        }
+    }
+}
+
 /// 下载某个分页，未发生风控且正常运行时返回 Ok(Page::ActiveModel)，其中 status 字段存储了新的下载状态，发生风控时返回 DownloadAbortError
 fn has_explicit_page_marker(template_str: &str) -> bool {
     let markers = [
@@ -569,6 +823,8 @@ fn has_explicit_page_marker(template_str: &str) -> bool {
         "P_pad",
         "p_pad_lower",
         "pad",
+        "ptitle",
+        "{{p}}",
     ];
     markers.iter().any(|&m| template_str.contains(m))
 }
@@ -586,9 +842,10 @@ pub async fn download_page(
     let base_path = dunce::canonicalize(base_path).context("canonicalize base path failed")?;
     let audio_only = cx.filter_option.audio_only && !cx.filter_option.save_audio;
     let save_audio = cx.filter_option.save_audio;
+    let template_name = if is_single_page { "video" } else { "multi_page_video" };
     let rendered_video_name = cx
         .template
-        .path_safe_render("video", &page_format_args(video_model, &page_model, &cx.config.time_format))?;
+        .path_safe_render(template_name, &page_format_args(video_model, &page_model, &cx.config.time_format))?;
     let rendered_path = Path::new(&rendered_video_name);
     let target_dir = match rendered_path.parent() {
         Some(p) if !p.as_os_str().is_empty() => base_path.join(p),
@@ -596,6 +853,7 @@ pub async fn download_page(
     };
     fs::create_dir_all(&target_dir).await?;
 
+    let mut canonical_audio_base_opt = None;
     let audio_target_dir = if save_audio {
         let configured_audio_base = cx
             .video_source
@@ -612,6 +870,7 @@ pub async fn download_page(
             fs::create_dir_all(raw_audio_base).await?;
             let canonical_audio_base =
                 dunce::canonicalize(raw_audio_base).context("canonicalize audio base path failed")?;
+            canonical_audio_base_opt = Some(canonical_audio_base.clone());
             let dir = match rendered_path.parent() {
                 Some(p) if !p.as_os_str().is_empty() => canonical_audio_base.join(p),
                 _ => canonical_audio_base,
@@ -630,8 +889,14 @@ pub async fn download_page(
         .context("video_name 模板未生成有效文件名")?
         .to_string_lossy()
         .to_string();
-    let video_name_template = cx.video_source.video_name().unwrap_or(&cx.config.video_name);
-    let page_name = if is_single_page || has_explicit_page_marker(video_name_template) {
+    let raw_video_name_template = cx.video_source.video_name().unwrap_or(&cx.config.video_name);
+    let effective_video_name_template =
+        if !is_single_page && (raw_video_name_template.trim().is_empty() || raw_video_name_template.trim() == "{{title}}") {
+            "{{title}}/{{pid_pad}} - {{ptitle}}"
+        } else {
+            raw_video_name_template
+        };
+    let page_name = if is_single_page || has_explicit_page_marker(effective_video_name_template) {
         base_name.clone()
     } else {
         format!("{} - P{:0>2}", base_name, page_model.pid)
@@ -665,6 +930,23 @@ pub async fn download_page(
     let legacy_media_path = page_model.path.as_deref().map(PathBuf::from);
     let saved_audio_path = audio_path.as_deref().filter(|_| save_audio);
     let download_audio_path = audio_path.as_deref().filter(|_| audio_only || save_audio);
+    migrate_legacy_page_files(
+        legacy_media_path.as_deref(),
+        &base_path,
+        canonical_audio_base_opt.as_deref(),
+        &page_name,
+        &video_path,
+        download_audio_path,
+        &poster_path,
+        fanart_path.as_deref(),
+        &nfo_path,
+        &danmaku_path,
+        &subtitle_path,
+        audio_extension,
+        save_audio,
+        cx,
+    )
+    .await;
     let dimension = match (page_model.width, page_model.height) {
         (Some(width), Some(height)) => Some(Dimension {
             width,
@@ -679,10 +961,16 @@ pub async fn download_page(
         dimension,
         ..Default::default()
     };
+    let need_fetch_video = (!audio_only && !video_path.exists())
+        || (audio_only && audio_path.as_deref().is_some_and(|path| !path.exists()))
+        || (save_audio && saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists()))
+        || (separate_status[1]
+            && !((!audio_only && video_path.exists() && (!save_audio || saved_audio_path.is_some_and(|p| p.exists())))
+                || (audio_only && audio_path.as_deref().is_some_and(|p| p.exists()))));
     let (res_1, res_2, res_3, res_4, res_5) = tokio::join!(
         // 下载分页封面
         fetch_page_poster(
-            separate_status[0] && !cx.config.skip_option.no_poster,
+            (separate_status[0] || !poster_path.exists()) && !cx.config.skip_option.no_poster,
             video_model,
             &page_model,
             poster_path,
@@ -691,10 +979,7 @@ pub async fn download_page(
         ),
         // 下载分页视频与可选的音频副本
         fetch_page_video(
-            separate_status[1]
-                || (!audio_only && !video_path.exists())
-                || (audio_only && audio_path.as_deref().is_some_and(|path| !path.exists()))
-                || (save_audio && saved_audio_path.is_some_and(|path| !path.exists() || !video_path.exists())),
+            need_fetch_video,
             video_model,
             &page_info,
             &video_path,
@@ -703,7 +988,7 @@ pub async fn download_page(
         ),
         // 生成分页视频信息的 nfo
         generate_page_nfo(
-            separate_status[2] && !cx.config.skip_option.no_video_nfo,
+            (separate_status[2] || !nfo_path.exists()) && !cx.config.skip_option.no_video_nfo,
             video_model,
             &page_model,
             nfo_path,
@@ -711,7 +996,7 @@ pub async fn download_page(
         ),
         // 下载分页弹幕
         fetch_page_danmaku(
-            separate_status[3] && !cx.config.skip_option.no_danmaku,
+            (separate_status[3] || !danmaku_path.exists()) && !cx.config.skip_option.no_danmaku,
             video_model,
             &page_info,
             danmaku_path,

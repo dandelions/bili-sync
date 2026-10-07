@@ -27,8 +27,10 @@ use crate::api::response::{
     UpdateFilteredVideoStatusResponse, UpdateVideoStatusResponse, VideoInfo, VideoResponse, VideosResponse,
 };
 use crate::api::wrapper::{ApiError, ApiResponse, ValidatedJson};
-use crate::bilibili::BiliClient;
+use crate::bilibili::{AudioFormat, BiliClient, FilterOption};
+use crate::config::{PathSafeTemplate, VersionedConfig, create_template_with_video_name};
 use crate::downloader::Downloader;
+use crate::utils::format_arg::page_format_args;
 use crate::utils::status::{PageStatus, VideoStatus};
 
 pub(super) fn router() -> Router {
@@ -114,40 +116,77 @@ pub async fn get_videos(
     }))
 }
 
-async fn resolve_video_audio_base_path(db: &DatabaseConnection, video: &video::Model) -> Result<Option<PathBuf>> {
-    let raw_audio_path = if let Some(id) = video.favorite_id {
+struct VideoSourceAudioConfig {
+    audio_base_path: Option<PathBuf>,
+    video_name: Option<String>,
+    audio_format: AudioFormat,
+}
+
+async fn resolve_video_audio_config(db: &DatabaseConnection, video: &video::Model) -> Result<VideoSourceAudioConfig> {
+    let config = VersionedConfig::get().snapshot();
+    let (raw_audio_path, raw_video_name, raw_filter_option) = if let Some(id) = video.favorite_id {
         favorite::Entity::find_by_id(id)
             .one(db)
             .await?
-            .and_then(|m| m.audio_path)
+            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .unwrap_or_default()
     } else if let Some(id) = video.collection_id {
         collection::Entity::find_by_id(id)
             .one(db)
             .await?
-            .and_then(|m| m.audio_path)
+            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .unwrap_or_default()
     } else if let Some(id) = video.submission_id {
         submission::Entity::find_by_id(id)
             .one(db)
             .await?
-            .and_then(|m| m.audio_path)
+            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .unwrap_or_default()
     } else if let Some(id) = video.watch_later_id {
         watch_later::Entity::find_by_id(id)
             .one(db)
             .await?
-            .and_then(|m| m.audio_path)
+            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .unwrap_or_default()
     } else if let Some(id) = video.normal_video_id {
         normal_video::Entity::find_by_id(id)
             .one(db)
             .await?
-            .and_then(|m| m.audio_path)
+            .map(|m| (m.audio_path, m.video_name, m.filter_option))
+            .unwrap_or_default()
     } else {
-        None
+        (None, None, None)
     };
-    Ok(raw_audio_path
+    let filter_option = raw_filter_option
+        .and_then(|v| serde_json::from_value::<FilterOption>(v).ok())
+        .unwrap_or_else(|| config.filter_option.clone());
+    let audio_base_path = raw_audio_path
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(PathBuf::from))
+        .map(PathBuf::from)
+        .or_else(|| {
+            filter_option
+                .audio_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+        });
+    let video_name = raw_video_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    Ok(VideoSourceAudioConfig {
+        audio_base_path,
+        video_name,
+        audio_format: filter_option.audio_format,
+    })
+}
+
+async fn resolve_video_audio_base_path(db: &DatabaseConnection, video: &video::Model) -> Result<Option<PathBuf>> {
+    Ok(resolve_video_audio_config(db, video).await?.audio_base_path)
 }
 
 fn resolve_page_audio_dir(video_path: &FsPath, video_base_path: &str, audio_base_path: Option<&FsPath>) -> Option<PathBuf> {
@@ -158,6 +197,16 @@ fn resolve_page_audio_dir(video_path: &FsPath, video_base_path: &str, audio_base
                 .strip_prefix(FsPath::new(video_base_path))
                 .ok()
                 .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.to_path_buf())
+                .or_else(|| {
+                    let canon_video_base = dunce::canonicalize(video_base_path).ok()?;
+                    let canon_parent = dunce::canonicalize(parent_dir).ok().unwrap_or_else(|| parent_dir.to_path_buf());
+                    canon_parent
+                        .strip_prefix(&canon_video_base)
+                        .ok()
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .map(|p| p.to_path_buf())
+                })
         } else {
             None
         };
@@ -184,15 +233,20 @@ pub async fn extract_audio(
         .find_with_related(page::Entity)
         .all(&db)
         .await?;
+    let config = VersionedConfig::get().snapshot();
     let downloader = Downloader::new(bili_client.client.clone());
     let mut extracted_count = 0;
     let mut warnings = Vec::new();
     for (video, pages) in videos {
-        if video.single_page.is_none() {
+        let Some(is_single_page) = video.single_page else {
             warnings.push(format!("视频「{}」缺少分页信息", video.name));
             continue;
-        }
-        let audio_base_path = resolve_video_audio_base_path(&db, &video).await?;
+        };
+        let audio_cfg = resolve_video_audio_config(&db, &video).await?;
+        let raw_video_name = audio_cfg.video_name.as_deref().unwrap_or(&config.video_name);
+        let template = create_template_with_video_name(&config, raw_video_name)?;
+        let template_name = if is_single_page { "video" } else { "multi_page_video" };
+        let audio_ext = audio_cfg.audio_format.extension();
         for page in pages {
             let Some(video_path) = page.path.as_deref().filter(|path| !path.is_empty()).map(FsPath::new) else {
                 warnings.push(format!("视频「{}」第 {} 页没有本地视频路径", video.name, page.pid));
@@ -211,12 +265,32 @@ pub async fn extract_audio(
                 warnings.push(format!("视频「{}」第 {} 页本地文件名无效", video.name, page.pid));
                 continue;
             };
-            let audio_dir = resolve_page_audio_dir(video_path, &video.path, audio_base_path.as_deref());
-            let Some(audio_dir) = audio_dir else {
-                warnings.push(format!("视频「{}」第 {} 页本地路径无效", video.name, page.pid));
-                continue;
+            let rendered_rel = template
+                .path_safe_render(template_name, &page_format_args(&video, &page, &config.time_format))
+                .ok();
+            let audio_path = if let Some(ref audio_base) = audio_cfg.audio_base_path {
+                if let Some(ref rendered) = rendered_rel {
+                    let rendered_path = FsPath::new(rendered);
+                    let dir = match rendered_path.parent() {
+                        Some(p) if !p.as_os_str().is_empty() => audio_base.join(p),
+                        _ => audio_base.clone(),
+                    };
+                    let stem = rendered_path.file_name().unwrap_or(file_stem);
+                    dir.join(stem).with_extension(audio_ext)
+                } else {
+                    let Some(audio_dir) = resolve_page_audio_dir(video_path, &video.path, Some(audio_base)) else {
+                        warnings.push(format!("视频「{}」第 {} 页本地路径无效", video.name, page.pid));
+                        continue;
+                    };
+                    audio_dir.join(file_stem).with_extension(audio_ext)
+                }
+            } else {
+                let Some(audio_dir) = resolve_page_audio_dir(video_path, &video.path, None) else {
+                    warnings.push(format!("视频「{}」第 {} 页本地路径无效", video.name, page.pid));
+                    continue;
+                };
+                audio_dir.join(file_stem).with_extension(audio_ext)
             };
-            let audio_path = audio_dir.join(file_stem).with_extension("m4a");
             match downloader.extract_audio(video_path, &audio_path).await {
                 Ok(()) => extracted_count += 1,
                 Err(error) => warnings.push(format!(

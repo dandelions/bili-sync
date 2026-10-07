@@ -182,8 +182,32 @@ impl DownloadTaskManager {
                                 .context("解析 mixin key 失败")?;
                             bilibili::set_global_mixin_key(mixin_key);
                             let bili_client = cx.bili_client.snapshot()?;
+                            let latest_source = match source_type.as_str() {
+                                "favorites" => favorite::Entity::find_by_id(source_id)
+                                    .one(&cx.connection)
+                                    .await?
+                                    .map(VideoSourceEnum::from),
+                                "collections" => collection::Entity::find_by_id(source_id)
+                                    .one(&cx.connection)
+                                    .await?
+                                    .map(VideoSourceEnum::from),
+                                "submissions" => submission::Entity::find_by_id(source_id)
+                                    .one(&cx.connection)
+                                    .await?
+                                    .map(VideoSourceEnum::from),
+                                "watch_later" => watch_later::Entity::find_by_id(source_id)
+                                    .one(&cx.connection)
+                                    .await?
+                                    .map(VideoSourceEnum::from),
+                                "normal_videos" | "normal_video" => normal_video::Entity::find_by_id(source_id)
+                                    .one(&cx.connection)
+                                    .await?
+                                    .map(VideoSourceEnum::from),
+                                _ => None,
+                            }
+                            .unwrap_or_else(|| source.clone());
                             tokio::select! {
-                                result = process_video_source(source, &bili_client, &cx.connection, &template, &config) => result,
+                                result = process_video_source(latest_source, &bili_client, &cx.connection, &template, &config) => result,
                                 _ = cancel.cancelled() => Ok(()),
                             }
                         }
