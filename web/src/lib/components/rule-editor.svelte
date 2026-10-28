@@ -21,6 +21,7 @@
 
 	const FIELD_OPTIONS = [
 		{ value: 'title', label: '标题' },
+		{ value: 'ptitle', label: '分P标题' },
 		{ value: 'tags', label: '标签' },
 		{ value: 'favTime', label: '收藏时间' },
 		{ value: 'pubTime', label: '发布时间' },
@@ -32,6 +33,7 @@
 	const getOperatorOptions = (field: string) => {
 		switch (field) {
 			case 'title':
+			case 'ptitle':
 			case 'tags':
 				return [
 					{ value: 'equals', label: '等于' },

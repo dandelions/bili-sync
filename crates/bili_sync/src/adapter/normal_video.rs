@@ -14,6 +14,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseConnection, QueryOrder,
 
 use crate::adapter::{_ActiveModel, VideoSource, VideoSourceEnum};
 use crate::bilibili::{BiliClient, Credential, PageInfo, Video, VideoInfo};
+use crate::utils::rule::FieldEvaluatable;
 use crate::utils::status::VideoStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,7 +218,12 @@ impl VideoSource for normal_video::Model {
                 video_active.single_page = Set(Some(now_single_page));
                 video_active.download_status = Set(video_status.into());
                 video_active.valid = Set(true);
-                video_active.should_download = Set(true);
+                let mut all_pages = existing_pages
+                    .iter()
+                    .map(|p| p.clone().into())
+                    .collect::<Vec<page::ActiveModel>>();
+                all_pages.extend(new_active_pages);
+                video_active.should_download = Set(self.rule.evaluate(&video_active, &all_pages));
                 video_active.update(connection).await?;
 
                 tracing::info!(

@@ -26,6 +26,7 @@ pub enum Condition<T: Serialize + Display> {
 #[serde(rename_all = "camelCase", tag = "field", content = "rule")]
 pub enum RuleTarget {
     Title(Condition<String>),
+    Ptitle(Condition<String>),
     Tags(Condition<String>),
     FavTime(Condition<DateTime>),
     PubTime(Condition<DateTime>),
@@ -61,6 +62,7 @@ impl Display for RuleTarget {
         fn get_field_name(rt: &RuleTarget, depth: usize) -> &'static str {
             match rt {
                 RuleTarget::Title(_) => "标题",
+                RuleTarget::Ptitle(_) => "分P标题",
                 RuleTarget::Tags(_) => "标签",
                 RuleTarget::FavTime(_) => "收藏时间",
                 RuleTarget::PubTime(_) => "发布时间",
@@ -79,7 +81,9 @@ impl Display for RuleTarget {
         let field_name = get_field_name(self, 0);
         match self {
             RuleTarget::Not(inner) => match inner.as_ref() {
-                RuleTarget::Title(cond) | RuleTarget::Tags(cond) => write!(f, "{}不{}", field_name, cond),
+                RuleTarget::Title(cond) | RuleTarget::Ptitle(cond) | RuleTarget::Tags(cond) => {
+                    write!(f, "{}不{}", field_name, cond)
+                }
                 RuleTarget::FavTime(cond) | RuleTarget::PubTime(cond) => {
                     write!(f, "{}不{}", field_name, cond)
                 }
@@ -87,7 +91,9 @@ impl Display for RuleTarget {
                 RuleTarget::MultiUpper(cond) => write!(f, "{}不{}", field_name, cond),
                 RuleTarget::Not(_) => write!(f, "格式化失败"),
             },
-            RuleTarget::Title(cond) | RuleTarget::Tags(cond) => write!(f, "{}{}", field_name, cond),
+            RuleTarget::Title(cond) | RuleTarget::Ptitle(cond) | RuleTarget::Tags(cond) => {
+                write!(f, "{}{}", field_name, cond)
+            }
             RuleTarget::FavTime(cond) | RuleTarget::PubTime(cond) => {
                 write!(f, "{}{}", field_name, cond)
             }

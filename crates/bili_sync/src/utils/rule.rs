@@ -63,6 +63,15 @@ impl FieldEvaluatable for RuleTarget {
     fn evaluate(&self, video: &video::ActiveModel, pages: &[page::ActiveModel]) -> bool {
         match self {
             RuleTarget::Title(cond) => video.name.try_as_ref().is_some_and(|title| cond.evaluate(title)),
+            RuleTarget::Ptitle(cond) => pages.iter().any(|page| {
+                let name = page.name.try_as_ref().map(|s| s.as_str()).unwrap_or_default();
+                let ptitle = if name.trim().is_empty() {
+                    video.name.try_as_ref().map(|s| s.as_str()).unwrap_or_default()
+                } else {
+                    name
+                };
+                cond.evaluate(ptitle)
+            }),
             // 目前的所有条件都是分别针对全体标签进行 any 评估的，例如 Prefix("a") && Suffix("b") 意味着 any(tag.Prefix("a")) && any(tag.Suffix("b")) 而非 any(tag.Prefix("a") && tag.Suffix("b"))
             // 这可能不满足用户预期，但应该问题不大，如果真有很多人用复杂标签筛选再单独改
             RuleTarget::Tags(cond) => video
@@ -96,6 +105,14 @@ impl FieldEvaluatable for RuleTarget {
     fn evaluate_model(&self, video: &video::Model, pages: &[page::Model]) -> bool {
         match self {
             RuleTarget::Title(cond) => cond.evaluate(&video.name),
+            RuleTarget::Ptitle(cond) => pages.iter().any(|page| {
+                let ptitle = if page.name.trim().is_empty() {
+                    &video.name
+                } else {
+                    &page.name
+                };
+                cond.evaluate(ptitle)
+            }),
             // 目前的所有条件都是分别针对全体标签进行 any 评估的，例如 Prefix("a") && Suffix("b") 意味着 any(tag.Prefix("a")) && any(tag.Suffix("b")) 而非 any(tag.Prefix("a") && tag.Suffix("b"))
             // 这可能不满足用户预期，但应该问题不大，如果真有很多人用复杂标签筛选再单独改
             RuleTarget::Tags(cond) => video
@@ -219,6 +236,16 @@ mod tests {
                 "「（收藏时间在“2023-06-01 00:00:00”和“2023-12-31 23:59:59”之间）且（标签匹配“技术|教程”）」",
                 // autocorrect-enable
             ),
+            (
+                Rule(vec![vec![RuleTarget::Ptitle(Condition::Contains("导论".to_string()))]]),
+                "「（分P标题包含“导论”）」",
+            ),
+            (
+                Rule(vec![vec![
+                    RuleTarget::Not(Box::new(RuleTarget::Ptitle(Condition::Prefix("预告".to_string())))),
+                ]]),
+                "「（分P标题不以“预告”开头）」",
+            ),
         ];
 
         for (rule, expected) in test_cases {
@@ -279,10 +306,101 @@ mod tests {
                 ),
                 false,
             ),
+            // 多P视频：其中一个分P匹配 Ptitle
+            (
+                (
+                    video::ActiveModel {
+                        name: Set("Rust 系列课程".to_string()),
+                        ..Default::default()
+                    },
+                    vec![
+                        page::ActiveModel {
+                            name: Set("第1讲：环境搭建".to_string()),
+                            ..Default::default()
+                        },
+                        page::ActiveModel {
+                            name: Set("第2讲：所有权导论".to_string()),
+                            ..Default::default()
+                        },
+                    ],
+                ),
+                Rule(vec![vec![RuleTarget::Ptitle(Condition::Contains("所有权".to_string()))]]),
+                true,
+            ),
+            // 多P视频：Not 规则，存在一个分P包含“花絮”，整体应判定为 false
+            (
+                (
+                    video::ActiveModel {
+                        name: Set("某电视剧合集".to_string()),
+                        ..Default::default()
+                    },
+                    vec![
+                        page::ActiveModel {
+                            name: Set("正片 01".to_string()),
+                            ..Default::default()
+                        },
+                        page::ActiveModel {
+                            name: Set("花絮 01".to_string()),
+                            ..Default::default()
+                        },
+                    ],
+                ),
+                Rule(vec![vec![RuleTarget::Not(Box::new(RuleTarget::Ptitle(Condition::Contains(
+                    "花絮".to_string(),
+                ))))]]),
+                false,
+            ),
+            // 单P视频：page.name 为空时，回退到视频标题判定
+            (
+                (
+                    video::ActiveModel {
+                        name: Set("深入理解计算机系统".to_string()),
+                        ..Default::default()
+                    },
+                    vec![page::ActiveModel {
+                        name: Set("".to_string()),
+                        ..Default::default()
+                    }],
+                ),
+                Rule(vec![vec![RuleTarget::Ptitle(Condition::Contains("计算机系统".to_string()))]]),
+                true,
+            ),
         ];
 
         for ((video, pages), rule, expected) in test_cases {
             assert_eq!(rule.evaluate(&video, &pages), expected);
         }
+    }
+
+    #[test]
+    fn test_evaluate_model() {
+        let video = video::Model {
+            id: 1,
+            name: "全栈开发课程".to_string(),
+            ..Default::default()
+        };
+        let pages = vec![
+            page::Model {
+                id: 10,
+                video_id: 1,
+                name: "01 导论与概述".to_string(),
+                ..Default::default()
+            },
+            page::Model {
+                id: 11,
+                video_id: 1,
+                name: "02 实战演练".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        let rule_match = Rule(vec![vec![RuleTarget::Ptitle(Condition::Contains("实战".to_string()))]]);
+        assert!(rule_match.evaluate_model(&video, &pages));
+
+        let rule_not_match = Rule(vec![vec![RuleTarget::Ptitle(Condition::Contains("高数".to_string()))]]);
+        assert!(!rule_not_match.evaluate_model(&video, &pages));
+
+        let rule_not = Rule(vec![vec![RuleTarget::Not(Box::new(RuleTarget::Ptitle(Condition::Contains("实战".to_string()))))]]);
+        assert!(!rule_not.evaluate_model(&video, &pages));
     }
 }
